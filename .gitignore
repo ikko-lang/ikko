@@ -1,0 +1,15 @@
+*#
+*~
+.#*
+tags
+TAGS
+*.hi
+*.o
+.cabal-sandbox
+ikko
+dist
+.stack-work
+*.go
+a.out
+.idea
+*.prof
