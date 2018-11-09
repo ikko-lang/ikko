@@ -1,0 +1,2 @@
+# ikko
+Ikko language
