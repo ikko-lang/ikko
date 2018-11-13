@@ -21,7 +21,7 @@ test-graph:
 
 run:
 	stack build
-	stack exec ikko -- examples/fib.at
+	stack exec ikko -- examples/fib.ik
 
 tags:
 	hasktags -e src

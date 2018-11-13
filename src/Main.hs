@@ -21,7 +21,7 @@ main = do
      interpret fileName content
 
    _ ->
-     exitError "usage: ikko <file.at>"
+     exitError "usage: ikko <file.ik>"
 
 interpret :: String -> String -> IO ()
 interpret fileName content =

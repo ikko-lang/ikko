@@ -13,7 +13,7 @@ Run:
 - `make` to build
 - `make test` to run tests
 - `make run` to run an example
-- `stack exec athena -- examples/fib.at` to run a specific file
+- `stack exec ikko -- examples/fib.ik` to run a specific file
 
 ## Example
 
