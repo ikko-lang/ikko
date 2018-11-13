@@ -562,7 +562,11 @@ typeParser = string "()" <|> typeName
 
 typeDefParser :: Parser TypeDecl
 typeDefParser = addLocation $ tryAll parsers
-  where parsers = [enumTypeParser, structTypeParser, genericType, namedType]
+  where parsers = [enumTypeParser, structTypeParser, funcTypeParser, genericType, namedType]
+
+simpleTypeDefParser :: Parser TypeDecl
+simpleTypeDefParser = addLocation $ tryAll parsers
+  where parsers = [funcTypeParser, genericType, namedType]
 
 enumTypeParser :: Parser TypeDecl
 enumTypeParser = do
@@ -600,8 +604,19 @@ structField :: Parser (String, TypeDecl)
 structField = do
   name <- valueName
   _ <- any1LinearWhitespace
-  typ <- addLocation namedType
+  typ <- addLocation simpleTypeDefParser
   return (name, typ)
+
+
+funcTypeParser :: Parser TypeDecl
+funcTypeParser = do
+  _ <- string "func("
+  argDecls <- sepBy simpleTypeDefParser commaSep
+  _ <- string ")"
+  _ <- any1LinearWhitespace
+  ret <- simpleTypeDefParser
+  return $ T.Function [] argDecls ret
+
 
 genericType :: Parser TypeDecl
 genericType = do
