@@ -86,8 +86,12 @@ tests =
   , expectParsesA expressionParser "f(a, b , c )"
     (eCall (eVar "f") [eVar "a", eVar "b", eVar "c"])
   , expectParsesA expressionParser "Bool(a)" (E.Cast [] "Bool" (eVar "a"))
+  , expectParsesA expressionParser "2 + 3"
+    (eBinary E.Plus (eVal (intVal 2)) (eVal (intVal 3)))
   , expectParsesA expressionParser "(2 + 3)"
     (E.Paren [] (eBinary E.Plus (eVal (intVal 2)) (eVal (intVal 3))))
+  , expectParsesA expressionParser "a || b"
+    (eBinary E.BoolOr (eVar "a") (eVar "b"))
   , expectParsesA expressionParser "Point{\nx: 123,\ny: 45, \n}"
     (eVal $ E.StructVal [] "Point"
      [("x", eVal $ intVal 123), ("y", eVal $ intVal 45)])

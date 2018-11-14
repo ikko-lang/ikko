@@ -22,10 +22,7 @@ fn contains(list, val) {
             return False
         }
         Link(n, next) {
-            if n == val {
-                return True
-            }
-            return contains(next, val)
+            return n == val || contains(next, val)
         }
     }
 }
