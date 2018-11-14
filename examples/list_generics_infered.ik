@@ -9,7 +9,7 @@ type LinkedList<T> enum {
 fn map(f, list) {
     match list {
         End {
-            return End{}
+            return End
         }
         Link(val, next) {
             return Link{
@@ -40,7 +40,7 @@ fn prepend(val, list) {
 }
 
 fn singleton(val) {
-    return prepend(val, End{})
+    return prepend(val, End)
 }
 
 fn double(x) {

@@ -1,5 +1,5 @@
 fn main() {
-    let list = prepend(5, prepend(4, prepend(3, End{})))
+    let list = prepend(5, prepend(4, prepend(3, End)))
     if contains(list, 3) {
         print("List contains 3\n")
     }
@@ -8,11 +8,11 @@ fn main() {
     }
 }
 
-type IntList enum {
+type List<T> enum {
   End
   Link {
-    value Int
-    next IntList
+    value T
+    next List<T>
   }
 }
 

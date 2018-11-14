@@ -19,11 +19,13 @@ test-first-pass:
 test-graph:
 	stack test ikko:test-graph
 
-run:
-	stack build
+run: ikko
 	stack exec ikko -- examples/fib.ik
 
 tags:
 	hasktags -e src
+
+check_examples: ikko
+	@for F in examples/*.ik; do stack exec ikko -- $$F > /dev/null || echo "$F failed"; done && echo "all good"
 
 .PHONY: run ikko

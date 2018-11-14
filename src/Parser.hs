@@ -381,7 +381,7 @@ precOrder =
 
 expr :: Parser Expression
 expr = do
-  e <- addLocation $ choice $ map try [parenExpr, valueExpr, unaryExpr, callExpr, castExpr, varExpr]
+  e <- addLocation $ choice $ map try [parenExpr, castExpr, valueExpr, unaryExpr, callExpr, varExpr]
   try (addLocation $ accessExpr e) <|> return e
 
 accessExpr :: Expression -> Parser Expression
@@ -449,16 +449,18 @@ varExpr = E.Var [] <$> valueName
 --- parse values
 
 valueParser :: Parser Value
-valueParser = addLocation $ choice $ map try [structValueParser, stringParser, boolParser, numberParser]
+valueParser = addLocation $ choice $ map try [boolParser, structValueParser, stringParser, numberParser]
 
 structValueParser :: Parser Value
 structValueParser = do
   typ <- typeName
-  _ <- string "{"
-  _ <- anyWhitespace
-  fields <- sepEndBy structFieldValue any1Whitespace
-  _ <- string "}"
-  return $ E.StructVal [] typ fields
+  mfields <- optionMaybe $ try $ do
+    _ <- string "{"
+    _ <- anyWhitespace
+    fields <- sepEndBy structFieldValue any1Whitespace
+    _ <- string "}"
+    return fields
+  return $ E.StructVal [] typ (fromMaybe [] mfields)
 
 structFieldValue :: Parser (String, Expression)
 structFieldValue = do
