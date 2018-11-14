@@ -307,11 +307,11 @@ matchVariable = S.MatchVariable [] <$> valueName
 matchStructure :: Parser MatchExpression
 matchStructure = do
   structType <- typeParser
-  -- TODO: Make parens optional
-  _ <- char '('
-  _ <- anyWhitespace
-  inner <- choice [matchExpressions, argsEnd]
-  return $ S.MatchStructure [] structType inner
+  minner <- optionMaybe $ try $ do
+    _ <- char '('
+    _ <- anyWhitespace
+    choice [matchExpressions, argsEnd]
+  return $ S.MatchStructure [] structType (fromMaybe [] minner)
 
 matchExpressions :: Parser [MatchExpression]
 matchExpressions = do
@@ -456,7 +456,7 @@ structValueParser = do
   typ <- typeName
   _ <- string "{"
   _ <- anyWhitespace
-  fields <- sepEndBy structFieldValue statementSep
+  fields <- sepEndBy structFieldValue any1Whitespace
   _ <- string "}"
   return $ E.StructVal [] typ fields
 

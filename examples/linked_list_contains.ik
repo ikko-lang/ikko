@@ -18,7 +18,7 @@ type IntList enum {
 
 fn contains(list, val) {
     match list {
-        End() {
+        End {
             return False
         }
         Link(n, next) {
@@ -28,8 +28,5 @@ fn contains(list, val) {
 }
 
 fn prepend(val, list) {
-    return Link{
-        value: val,
-        next: list,
-    }
+    return Link{value: val, next: list,}
 }
