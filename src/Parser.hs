@@ -623,8 +623,7 @@ funcTypeParser = do
   argDecls <- sepBy simpleTypeDefParser commaSep
   _ <- string ")"
   _ <- any1LinearWhitespace
-  ret <- simpleTypeDefParser
-  return $ T.Function [] argDecls ret
+  T.Function [] argDecls <$> simpleTypeDefParser
 
 
 genericType :: Parser TypeDecl
