@@ -49,13 +49,12 @@ valueType ctor =
 -- Among other things, this:
 -- * Checks for duplicate bindings
 -- * Splits types from other bindings
--- * (TODO) Check that all types referred to actually exist
--- * (TODO) Check for variables that are defined and never referenced
 -- * (TODO) Check that match statements have at least one case
 -- * (TODO) Check that match cases do not completely overlap
 firstPass :: File -> Result Module
 firstPass file = do
   ctors <- gatherConstructors file
+  checkTypesExist ctors
 
   uniqueDecls <- ensureDeclsAreUnique file
   binds <- gatherBindings uniqueDecls
@@ -78,6 +77,32 @@ ensureDeclsAreUnique (d:ds) = do
     Just duplicate ->
       withLocations [d, duplicate] $ duplicateName name
 
+
+checkTypesExist :: Map String Constructor -> Result ()
+checkTypesExist ctors =
+  mapM_ (checkRefedTypesExist ctors) (Map.toList ctors)
+
+checkRefedTypesExist :: Map String Constructor -> (String, Constructor) -> Result ()
+checkRefedTypesExist ctors (_, ctor) =
+  mapM_ (checkTypeDefined ctors) (concatMap getReferencedType $ ctorFields ctor)
+
+getReferencedType :: (String, Scheme) -> [String]
+getReferencedType (_, Scheme _ t) = filter (not . isBuiltIn) (getTypeNames t)
+
+isBuiltIn :: String -> Bool
+isBuiltIn t = t `elem` ["Int", "Float", "Bool", "Char", "String", "()"]
+
+getTypeNames :: Type -> [String]
+getTypeNames t = case t of
+  TCon name ts -> name : concatMap getTypeNames ts
+  TFunc at rt  -> (concatMap getTypeNames at) ++ getTypeNames rt
+  TVar _       -> []
+  TGen _       -> []
+
+checkTypeDefined :: Map String a -> String -> Result ()
+checkTypeDefined definitions name =
+  when (not $ Map.member name definitions)
+    (Left $ UndefinedType name)
 
 gatherConstructors :: File -> Result (Map String Constructor)
 gatherConstructors file =
