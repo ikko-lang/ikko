@@ -1,5 +1,6 @@
 module Parser where
 
+import Control.Monad (when)
 import Data.Maybe (isNothing, fromMaybe)
 
 import Text.Parsec
@@ -23,6 +24,12 @@ type MatchCase = S.MatchCase
 type MatchExpression = S.MatchExpression
 type Expression = E.Expression
 type Value = E.Value
+
+keywords :: [String]
+keywords =
+  [ "package", "import", "let", "fn", "type", "struct", "enum",
+    "if", "else", "while", "for", "match", "with"
+  ]
 
 parseFile :: String -> String -> Either String File
 parseFile fileName content =
@@ -672,7 +679,9 @@ valueName :: Parser String
 valueName = do
   first <- lower
   rest <- many $ choice [letter, digit, underscore]
-  return $ first : rest
+  let name = first : rest
+  when (name `elem` keywords) (fail $ "Cannot use a keyword as a variable name: " ++ name)
+  return name
 
 anyWhitespaceS :: Parser String
 -- `try` is needed here so that it can back out of parsing a division operator
