@@ -612,7 +612,7 @@ structField = do
 
 funcTypeParser :: Parser TypeDecl
 funcTypeParser = do
-  _ <- string "func("
+  _ <- string "fn("
   argDecls <- sepBy simpleTypeDefParser commaSep
   _ <- string ")"
   _ <- any1LinearWhitespace

@@ -6,7 +6,7 @@ type LinkedList<T> enum {
   }
 }
 
-fn map<A, B>(f func(A) B, list LinkedList<A>) LinkedList<B> {
+fn map<A, B>(f fn(A) B, list LinkedList<A>) LinkedList<B> {
     match list {
         End {
             return End{}
@@ -20,7 +20,7 @@ fn map<A, B>(f func(A) B, list LinkedList<A>) LinkedList<B> {
     }
 }
 
-fn fold<A, B>(reducer func(A, B) B, init B, list LinkedList<A>) B {
+fn fold<A, B>(reducer fn(A, B) B, init B, list LinkedList<A>) B {
     match list {
         End {
             return init
