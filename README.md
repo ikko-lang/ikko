@@ -1,7 +1,7 @@
 # Ikko
 
-Ikko is a programing language. See [ikkolang.com](ikkolang.com) for a bit more
-information, or the examples directory for some example code.
+Ikko is a programing language. See [ikkolang.com](http://ikkolang.com) for a bit
+more information, or the examples directory for some example code.
 
 
 ## Building
