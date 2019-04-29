@@ -1,15 +1,15 @@
-type Color enum {
+type Color enum:
   Red
   Blue
   Green
-}
 
-type Channel struct {
+
+type Channel struct:
   color Color
   value Int
-}
 
-fn main() {
+
+fn main():
   let a Color = Red{}
   a = Blue{}
   let c Channel = Channel{
@@ -20,4 +20,3 @@ fn main() {
   print("\n")
   print(String(c))
   print("\n")
-}

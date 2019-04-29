@@ -13,6 +13,7 @@ data Statement
   | If      Annotation Expression [Statement] (Maybe Statement)
   | While   Annotation Expression [Statement]
   | Match   Annotation Expression [MatchCase]
+  | Pass    Annotation
   deriving (Eq, Show)
 
 data MatchCase
@@ -37,6 +38,7 @@ instance Annotated Statement where
     If     a _ _ _ -> a
     While  a _ _   -> a
     Match  a _ _   -> a
+    Pass   a       -> a
 
   setAnnotation ann stmt = case stmt of
     Return _ e     -> Return ann e
@@ -47,6 +49,7 @@ instance Annotated Statement where
     If     _ t s e -> If     ann t s e
     While  _ e s   -> While  ann e s
     Match  _ e m   -> Match  ann e m
+    Pass   _       -> Pass   ann
 
   removeAnnotations stmt = case stmt of
     Return _ e     -> Return [] (fmap removeAnnotations e)
@@ -57,6 +60,7 @@ instance Annotated Statement where
     If     _ t s e -> If     [] (removeAnnotations t) (map removeAnnotations s) (fmap removeAnnotations e)
     While  _ e s   -> While  [] (removeAnnotations e) (map removeAnnotations s)
     Match  _ e m   -> Match  [] (removeAnnotations e) (map removeAnnotations m)
+    Pass   _       -> Pass   []
 
 
 instance Annotated MatchCase where

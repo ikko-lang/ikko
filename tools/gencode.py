@@ -3,9 +3,8 @@
 import random
 
 template = '''
-fn main() {{
+fn main():
     print(String({expr}))
-}}
 '''
 
 def gen_expr(target, prev_operator=None, depth=1):

@@ -1,6 +1,6 @@
 // MVP features in ikko
 
-fn main() {
+fn main():
     // All variables are currently mutable
     let a = 123
     // Only one size of integer and floating types
@@ -18,9 +18,8 @@ fn main() {
     // TODO print(String(b) + " " + String(a))
 
     print(do_stuff())
-}
 
-fn do_stuff() {
+fn do_stuff():
    // basic math operations are supported
    let int  = 5 + (2 * 10) / 3 % 4
 
@@ -36,24 +35,20 @@ fn do_stuff() {
    let y  = (~1024) & (15 << 2)
 
    // Boolean operators also exist
-   if 1 == 1 && 2 < 3 {
+   if 1 == 1 && 2 < 3:
       print(recursive(10, 4))
-   } else if False {
+   else if False:
      x = !!False
-   }
 
    let i  = 0
-   while i < 10 {
+   while i < 10:
          print(String(i))
          i = i + 1
-   }
+
    return "foo"
-}
 
 // recursive functions are of course allowed
-fn recursive(a, b)  {
-   if b == 0 {
+fn recursive(a, b):
+   if b == 0:
       return String(a)
-   }
    return recursive(b, a % b)
-}

@@ -1,6 +1,6 @@
 module FirstPass where
 
-import Control.Monad (foldM, when)
+import Control.Monad (foldM, when, unless)
 import Data.Foldable (forM_)
 import Data.Map (Map)
 import qualified Data.Map as Map
@@ -20,7 +20,7 @@ import qualified AST.Type as T
 import Errors
   ( Error(..)
   , Result )
-import Types (Scheme(..), Type(..), Substitution, apply, tcon0, makeSub)
+import Types (Scheme(..), Type(..), Substitution, makeSub)
 import Util.Functions
 
 data Module =
@@ -95,13 +95,13 @@ isBuiltIn t = t `elem` ["Int", "Float", "Bool", "Char", "String", "()"]
 getTypeNames :: Type -> [String]
 getTypeNames t = case t of
   TCon name ts -> name : concatMap getTypeNames ts
-  TFunc at rt  -> (concatMap getTypeNames at) ++ getTypeNames rt
+  TFunc at rt  -> concatMap getTypeNames at ++ getTypeNames rt
   TVar _       -> []
   TGen _       -> []
 
 checkTypeDefined :: Map String a -> String -> Result ()
 checkTypeDefined definitions name =
-  when (not $ Map.member name definitions)
+  unless (Map.member name definitions)
     (Left $ UndefinedType name)
 
 gatherConstructors :: File -> Result (Map String Constructor)
@@ -156,7 +156,9 @@ createStructFields nGens typ = zipWith makePair
   where makePair fname ftype = (fname, Scheme nGens (TFunc [typ] ftype))
 
 
-addEnumOptions nGens generalized sub typ []         constrs = return constrs
+addEnumOptions :: Int -> t -> Substitution -> Type -> [(String, [(String, TypeDecl)])]  ->
+  Map String Constructor -> Either Error (Map String Constructor)
+addEnumOptions _     _           _   _   []         constrs = return constrs
 addEnumOptions nGens generalized sub typ ((n,t):os) constrs = do
   mustBeUnique n constrs
 
@@ -227,6 +229,7 @@ checkDupVarsStmt stmt = case stmt of
   S.Match _ e cases  -> do
     checkDupVarsExpr e
     mapM_ checkDupVarsCase cases
+  S.Pass _           -> return ()
 
 
 checkDupVarsBlock :: [S.Statement] -> Set String -> Result ()

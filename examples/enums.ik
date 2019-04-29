@@ -1,21 +1,17 @@
-type ASTIsh enum {
+type ASTIsh enum:
   TInt
   TFloat
   TString
-  TNamed {
+  TNamed:
     name String
-  }
-  TFunc {
+  TFunc:
     arg ASTIsh
     ret ASTIsh
-  }
-}
 
-fn printEnum(a ASTIsh) {
+fn printEnum(a ASTIsh):
     print(String(a))
-}
 
-fn main() {
+fn main():
   let a = TNamed{
     name: "some name",
   }
@@ -23,4 +19,3 @@ fn main() {
   print("\n")
   printEnum(a)
   print("\n")
-}

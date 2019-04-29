@@ -146,6 +146,9 @@ interpretStmt scope stmt = case stmt of
     val <- interpretExpr scope expr
     runMatchingCase scope val cases
 
+  S.Pass _ ->
+    return FellThrough
+
 runMatchingCase :: Scope -> Value -> [S.MatchCase] -> IO StmtResult
 runMatchingCase _ _ [] =
   error "no cases matched"

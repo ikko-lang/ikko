@@ -1,17 +1,15 @@
-type Even enum {
-  EElem {
+type Even enum:
+  EElem:
     value Int
     next Odd
-  }
   End
-}
 
-type Odd struct {
+type Odd struct:
   value Int
   next Even
-}
 
-fn main() {
+
+fn main():
   let o = Odd{
     value: 1,
     next: EElem{
@@ -24,4 +22,3 @@ fn main() {
     },
   }
   print(String(o))
-}

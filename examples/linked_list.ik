@@ -1,31 +1,24 @@
-type LinkedList enum {
+type LinkedList enum:
   End
-  Link {
+  Link:
     value String
     next LinkedList
-  }
-}
 
-fn length(l) {
+fn length(l):
   return length_(l, 0)
-}
 
-fn length_(l, size) {
-  match l {
-    End() {
+fn length_(l, size):
+  match l:
+    End():
       return size
-    }
-    Link(_, End()) {
+    Link(_, End()):
       return 1 + size
-    }
-    Link(_, next) {
+    Link(_, next):
       return length_(next, 1 + size)
-    }
-  }
-  return 0
-}
 
-fn main() {
+  return 0
+
+fn main():
   let a1 = Link{
     value: "last",
     next: End{
@@ -44,4 +37,3 @@ fn main() {
   print("\n")
   print(String(a3))
   print("\n")
-}

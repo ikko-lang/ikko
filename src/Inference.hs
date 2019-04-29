@@ -25,9 +25,9 @@ import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.Set (Set)
 import qualified Data.Set as Set
-import Data.Maybe (isJust, mapMaybe)
+import Data.Maybe (isJust)
 
-import Debug.Trace
+--import Debug.Trace
 
 import Control.Monad (when, foldM, zipWithM)
 import Control.Monad.State (StateT, modify, get, gets, put, lift, evalStateT, mapStateT)
@@ -170,6 +170,8 @@ instance Depencencies S.Statement where
       let exprDeps = findDependencies bound expr
           caseDeps = concatMap (findDependencies bound) matchCases
       in exprDeps ++ caseDeps
+    S.Pass _ ->
+      []
 
 instance Depencencies S.MatchCase where
   findDependencies bound matchCase =
@@ -406,8 +408,8 @@ inferGroup impls env = do
   return (typedDecls, resultEnv)
 
 
-showTrace :: (Show a) => String -> a -> a
-showTrace s a = trace (s ++ ": " ++ show a) a
+--showTrace :: (Show a) => String -> a -> a
+--showTrace s a = trace (s ++ ": " ++ show a) a
 
 inferDecls :: Environment -> [(String, D.Declaration)] -> [Type] -> InferM TypedDecls
 inferDecls env decls ts = mapM infer (zip decls ts)
@@ -572,6 +574,10 @@ inferStmt env stmt = case stmt of
     let resultType = getType (head cases')
     let result = addType resultType $ S.Match a expr' cases'
     return (result, foldl1 combineReturns returns)
+
+  S.Pass a -> do
+    let result = addType tUnit $ S.Pass a
+    return (result, NeverReturns)
 
 
 inferMatchCase :: Environment -> Type -> S.MatchCase
@@ -828,7 +834,7 @@ typeFromDecl gmap tdecl = case tdecl of
     genTypes <- mapM (typeFromDecl gmap) genArgs
     t <- typeFromName name
     case t of
-      TCon con args -> do
+      TCon con _ -> do
         unify t (TCon con genTypes)
         applyCurrentSub t
       _ -> error "TODO: figure out what causes this case"
@@ -1017,8 +1023,8 @@ isRight :: Either a b -> Bool
 isRight (Right _) = True
 isRight _         = False
 
-uncurry3 :: (a -> b -> c -> d) -> ((a, b, c) -> d)
-uncurry3 fn (a, b, c) = fn a b c
+--uncurry3 :: (a -> b -> c -> d) -> ((a, b, c) -> d)
+--uncurry3 fn (a, b, c) = fn a b c
 
 insertAll :: (Ord k) => Map k v -> [(k, v)] -> Map k v
 insertAll m ((k, v):kvs) =

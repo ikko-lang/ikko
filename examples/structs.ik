@@ -1,14 +1,14 @@
-type Bar struct {
+type Bar struct:
     x Int
     y Float
-}
 
-type Foo struct {
+
+type Foo struct:
     asdf Int
     xyz Bar
-}
 
-fn main() {
+
+fn main():
     let foo = Foo{
         asdf: 123 + 345,
         xyz: Bar{
@@ -25,4 +25,3 @@ fn main() {
     //print("\na Float: ")
     //print(String(foo.xyz.y * 0.6))
     print("\n")
-}

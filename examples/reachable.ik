@@ -1,8 +1,6 @@
-fn main() {
+fn main():
   print("a")
   let b = True
-  if b {
+  if b:
     return
-  }
   print("b")
-}

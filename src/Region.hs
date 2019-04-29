@@ -2,15 +2,15 @@ module Region where
 
 data Region =
   Region
-  { fileName :: !String
-  , start :: !Position
-  , end :: !Position
+  { pFileName :: !String
+  , pStart    :: !Position
+  , pEnd      :: !Position
   } deriving (Eq, Ord, Show)
 
 data Position =
   Position
-  { line :: !Int
-  , column :: !Int
+  { pLine   :: !Int
+  , pColumn :: !Int
   } deriving (Eq, Ord, Show)
 
 
@@ -18,8 +18,8 @@ data Position =
 showRegion :: [String] -> Region -> String
 showRegion fileLines region =
   let numberedLines = zipWith addNumber [1..] fileLines
-      firstLine = line $ start region
-      lastLine = line $ end region
+      firstLine = pLine $ pStart region
+      lastLine = pLine $ pEnd region
       nlines = min maxLines (lastLine - firstLine + 1)
       regionLines = take nlines $ drop (firstLine - 1) numberedLines
   in unlines regionLines

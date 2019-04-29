@@ -1,0 +1,15 @@
+fn foo(a, b, c):
+    print(a)
+    print(b)
+    print(c)
+
+fn main():
+    foo(
+       "a",
+       "b",
+       "c")
+    let x = (
+       1 + 10
+    )
+    let y = 1 +
+      10

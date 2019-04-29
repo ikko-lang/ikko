@@ -1,8 +1,10 @@
 module Main where
 
 
-import Text.Parsec (eof, parse)
-import Text.Parsec.String (Parser)
+import Data.Functor.Identity (runIdentity)
+
+import Text.Parsec (eof, ParseError)
+import Text.Parsec.Indent
 
 import AST.Annotation (Annotated, removeAnnotations)
 import qualified AST.Declaration as D
@@ -125,7 +127,7 @@ tests =
      (eBinary E.Eq (eVal (intVal 1)) (eVal (intVal 1)))
      (eBinary E.Less (eVal (intVal 2)) (eVal (intVal 3))))
   , expectParses typeParser "Int" "Int"
-  , expectParsesA typeDefParser "struct {\n  a  Int\nb String\n}"
+  , expectParsesA typeDefParser "struct:\n  a Int\n  b String\n"
     (T.Struct [] [("a", intT), ("b", stringT)])
   , testEnumType
   , testEnumType2
@@ -142,17 +144,9 @@ tests =
   , expectParses statementSep "\n" ()
   , expectParses statementSep "  \n  " ()
   , expectParses statementSep "  \n\n  \n  " ()
-  , expectParsesA statementParser "{\n}" (sBlock [])
-  , expectParsesA statementParser "{\nreturn 1\n}"
-    (sBlock [sReturn $ Just $ eVal $ intVal 1])
-  , expectParsesA statementParser "{\n  return 1\n}"
-    (sBlock [sReturn $ Just $ eVal $ intVal 1])
-  , expectParsesA statementParser "{\nreturn 1  \n}"
-    (sBlock [sReturn $ Just $ eVal $ intVal 1])
-  , expectParsesA statementParser "{  \n  return 1  \n  \n }"
-    (sBlock [sReturn $ Just $ eVal $ intVal 1])
-  , expectParsesA statementParser "{\n{\n}\n{\n}\n}"
-    (sBlock [sBlock [], sBlock []])
+  , expectParsesA statementParser "pass" (S.Pass [])
+  , expectParsesA statementParser "return 1\n"
+    (sReturn $ Just $ eVal $ intVal 1)
   , expectParsesA statementParser "let a123 = True"
     (sLet "a123" (eVal $ boolVal True))
   , expectParsesA typeDefParser "Bool"
@@ -200,29 +194,29 @@ tests =
 
 testEnumType :: Test
 testEnumType =
-  let text = "enum {\n Cons {\n item Int \n next List \n } \n End \n }"
+  let text = "enum:\n Cons:\n  item Int\n  next List\n End\n"
       expected = T.Enum [] [ ("Cons", [("item", intT), ("next", T.TypeName [] "List")])
                            , ("End", []) ]
   in expectParsesA typeDefParser text expected
 
 testEnumType2 :: Test
 testEnumType2 =
-  let text = "enum {\n TInt\n TFloat \n }"
+  let text = "enum:\n TInt\n TFloat\n"
       expected = T.Enum [] [ ("TInt", [])
                            , ("TFloat", []) ]
   in expectParsesA typeDefParser text expected
 
 testParsingBlock :: Test
 testParsingBlock =
-  let text = "{\n  let a1 = True \n  return a1  \n }"
+  let text = "let a1 = True\nreturn a1  \n"
       expected = sBlock [ sLet "a1" (eVal $ boolVal True)
                          , sReturn (Just $ eVar "a1")
                          ]
-  in expectParsesA statementParser text expected
+  in expectParsesA blockStatement text expected
 
 testParsingIf :: Test
 testParsingIf =
-  let text = "if a == 1 {\nreturn a\n}"
+  let text = "if a == 1:\n    return a"
       test = eBinary E.Eq (eVar "a") (eVal $ intVal 1)
       body = [sReturn $ Just $ eVar "a"]
       expected = S.If [] test body Nothing
@@ -230,7 +224,7 @@ testParsingIf =
 
 testParsingMatch :: Test
 testParsingMatch =
-  let text = "match x {\n  _ {\nreturn 1\n}\n  Link(_, next) {\n return 2\n}\n}"
+  let text = "match x:\n  _:\n    return 1\n  Link(_, next):\n    return 2"
       ret n = sBlock [sReturn $ Just $ eVal $ intVal n]
       case1 = S.MatchCase (S.MatchAnything []) (ret 1)
       case2 = S.MatchCase (S.MatchStructure [] "Link" [S.MatchAnything [], S.MatchVariable [] "next"]) (ret 2)
@@ -239,26 +233,26 @@ testParsingMatch =
 
 testParsingFunc :: Test
 testParsingFunc =
-  let text = "fn main() {\n}"
-      expected = D.Function [] "main" Nothing [] (sBlock [])
+  let text = "fn main():\n  pass"
+      expected = D.Function [] "main" Nothing [] (sBlock [S.Pass []])
   in expectParsesA declarationParser text expected
 
 testParsingFunc2 :: Test
 testParsingFunc2 =
-  let text = "fn main(a, b) {\n//a comment\n}"
-      expected = D.Function [] "main" Nothing ["a", "b"] (sBlock [])
+  let text = "fn main(a, b):\n  //a comment\n  pass"
+      expected = D.Function [] "main" Nothing ["a", "b"] (sBlock [S.Pass []])
   in expectParsesA declarationParser text expected
 
 testParsingTypedFunction :: Test
 testParsingTypedFunction =
-  let text = "fn main(a Int, b Bool) Bool {\n//a comment\n}"
+  let text = "fn main(a Int, b Bool) Bool:\n//a comment\n  pass"
       fnType = Just ([], T.Function [] [intT, boolT] boolT)
-      expected = D.Function [] "main" fnType ["a", "b"] (sBlock [])
+      expected = D.Function [] "main" fnType ["a", "b"] (sBlock [S.Pass []])
   in expectParsesA declarationParser text expected
 
 testParsingTypeDecl :: Test
 testParsingTypeDecl =
-  let text = "type Foo struct {\n  asdf Int\n  xyz Foo\n}"
+  let text = "type Foo struct:\n  asdf Int\n  xyz Foo\n"
       declaredType = T.Struct [] [("asdf", intT), ("xyz", T.TypeName [] "Foo")]
       def = T.TypeDef [] "Foo" []
       expected = D.TypeDef [] def declaredType
@@ -274,7 +268,7 @@ expectParses = expectParses' id
 
 expectParses' :: (Eq a, Show a) => (a -> a) -> Parser a -> String -> a -> Test
 expectParses' postprocess parser text expected =
-  case parse (parser <* eof) "<test>" text of
+  case parse (parser <* eof) text of
    (Left err) -> do
      putStrLn $  "failed parsing ''" ++ text ++ "'', error parsing (" ++ show err ++ ")"
      return False
@@ -291,3 +285,6 @@ expectParses' postprocess parser text expected =
              , show result ]
        putStrLn $ concat parts
        return False
+
+parse :: Parser a -> String -> Either ParseError a
+parse parser text = runIdentity $ runIndentParserT parser () "<test>" text

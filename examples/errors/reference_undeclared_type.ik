@@ -1,7 +1,6 @@
-type MyStruct struct {
+type MyStruct struct:
     f1 Int
     f2 NotARealType
-}
 
 fn foo(m MyStruct) {
     let x = m.f1

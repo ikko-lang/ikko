@@ -1,3 +1,2 @@
-fn main() {
+fn main():
     print("Hello, world")
-}

@@ -20,13 +20,11 @@ Run:
 See the `examples/` directory for more examples.
 
 ```rust
-fn identity<A>(a A) A {
+fn identity<A>(a A) A:
     return a
-}
 
-fn main() {
+fn main():
     print(identity("Hello generics\n"))
-}
 ```
 
 ## Features

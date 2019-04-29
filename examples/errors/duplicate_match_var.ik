@@ -1,17 +1,13 @@
-type LinkedList enum {
+type LinkedList enum:
   End
-  Link {
+  Link:
     value String
     next LinkedList
-  }
-}
 
-fn main() {
+fn main():
   let a = End{}
-  match a {
-    End() {
-    }
-    Link(x, Link(x, _)) {
-    }
-  }
-}
+  match a:
+    End():
+        pass
+    Link(x, Link(x, _)):
+        pass
