@@ -6,11 +6,11 @@ fn main():
     if contains(list, 10):
         print("List contains 10\n")
 
-type List<T> enum:
+type List<t> enum:
   End
   Link:
-    value T
-    next List<T>
+    value t
+    next List<t>
 
 fn contains(list, val):
     match list:

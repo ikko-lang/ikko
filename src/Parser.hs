@@ -22,7 +22,6 @@ import Region (Position(..), Region(..))
 
 type File            = D.File Annotation
 type Declaration     = D.Declaration Annotation
-type FuncType        = D.FuncType Annotation
 type Statement       = S.Statement Annotation
 type MatchCase       = S.MatchCase Annotation
 type MatchExpression = S.MatchExpression Annotation
@@ -92,7 +91,6 @@ funcDeclaration = do
   _ <- string "fn"
   _ <- any1LinearWhitespace
   name <- valueName
-  gens <- optionMaybe $ try genericList
   _ <- char '('
   _ <- anyLinearWhitespace
   argsAndTypes <- funcArgDecl
@@ -100,28 +98,20 @@ funcDeclaration = do
   retType <- optionMaybe $ try $ do
     _ <- any1LinearWhitespace
     simpleTypeDefParser
-  mtype <- assembleFunctionType (fromMaybe [] gens) argTypes retType
+  mtype <- assembleFunctionType argTypes retType
   _ <- char ':'
   _ <- statementSep
   D.Function [] name mtype args <$> blockStatement
 
-assembleFunctionType :: [Type] -> [Maybe TypeDecl] -> Maybe TypeDecl -> Parser (Maybe FuncType)
-assembleFunctionType gens argTypes retType =
+assembleFunctionType :: [Maybe TypeDecl] -> Maybe TypeDecl -> Parser (Maybe T.TypeDecl)
+assembleFunctionType argTypes retType =
   if allNothings argTypes && isNothing retType
   then return Nothing
   else do
     argTs <- requireJusts argTypes
     let retT = unwrapOr retType nilType
     let typ = T.Function [] argTs retT
-    return $ Just (gens, typ)
-
-
-genericList :: Parser [Type]
-genericList = do
-  _ <- string "<"
-  gens <- sepBy typeParser commaSep
-  _ <- string ">"
-  return gens
+    return $ Just typ
 
 
 allNothings :: [Maybe a] -> Bool
@@ -439,7 +429,7 @@ argsEnd = do
 
 castExpr :: Parser Expression
 castExpr = do
-  typ <- typeParser
+  typ <- upperTypeName -- only concrete type names, not type variables
   E.Cast [] typ <$> parenExpr'
 
 parenExpr' :: Parser Expression
@@ -461,7 +451,7 @@ valueParser = addLocation $ choice $ map try [boolParser, structValueParser, str
 
 structValueParser :: Parser Value
 structValueParser = do
-  typ <- typeName
+  typ <- upperTypeName -- only concrete type names, not type variables
   mfields <- optionMaybe $ try $ do
     _ <- string "{"
     _ <- anyWhitespace
@@ -669,8 +659,14 @@ escapedChar = do
 
 typeName :: Parser String
 typeName = do
+  first <- upper <|> letter
+  rest <- many $ choice [letter, digit, underscore]
+  return $ first : rest
+
+upperTypeName :: Parser String
+upperTypeName = do
   first <- upper
-  rest <- many $ choice [letter, underscore]
+  rest <- many $ choice [letter, digit, underscore]
   return $ first : rest
 
 valueName :: Parser String

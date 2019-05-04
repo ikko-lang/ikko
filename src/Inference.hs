@@ -373,7 +373,8 @@ getExplicitType (name, decl) = case decl of
     return (name, asScheme t)
 
   D.Function _ _ mgendecl _ _ -> do
-    let Just (gens, tdecl) = mgendecl
+    let Just tdecl = mgendecl
+    let gens = T.getGenerics tdecl
     gmap <- genericMap gens
     t <- withLocations [decl] $ typeFromDecl gmap tdecl
     let varSet = Set.fromList gens

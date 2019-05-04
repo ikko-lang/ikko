@@ -1,5 +1,5 @@
-fn identity<A>(a A) A:
-    return a
+fn identity(x a) a:
+    return x
 
 fn main():
     print(identity("Hello generics\n"))

@@ -17,6 +17,8 @@ data Error
   | UndefinedVar String -- variable name
   | UndefinedField String String -- struct name, field name
   | UndefinedType String -- type name
+  | UndefinedGeneric String -- type name
+  | InvalidGenericParam String -- generic parameter name
   | NonStructureType String -- type name
   | StructFieldErr String String -- type name, message
   | PatternErr String -- message

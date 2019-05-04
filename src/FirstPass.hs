@@ -2,6 +2,7 @@ module FirstPass where
 
 import Control.Monad (foldM, when, unless)
 import Data.Foldable (forM_)
+import Data.List (nub)
 import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.Set (Set)
@@ -64,6 +65,8 @@ valueType ctor =
 -- * (TODO) Check that match cases do not completely overlap
 firstPass :: FileT -> Result Module
 firstPass file = do
+  checkGenericUsage (gatherTypes file)
+
   ctors <- gatherConstructors file
   checkTypesExist ctors
 
@@ -73,6 +76,53 @@ firstPass file = do
   mapM_ checkDupVars binds
 
   return Module { bindings=binds, constructors=ctors }
+
+-- gatherTypes selects the declarations that are type declarations
+gatherTypes :: FileT -> [(TypeDefT, TypeDeclT)]
+gatherTypes file =
+  [(def, decl) | (TypeDef _ def decl) <- file]
+
+-- and don't use generics not declared for the type
+checkGenericUsage :: [(TypeDefT, TypeDeclT)] -> Result ()
+checkGenericUsage decls = do
+  mapM_ (checkGenNames . fst) decls
+  mapM_ (uncurry checkGenDefined) decls
+
+-- checkGenNames ensures that the type parameters used for generics
+-- are valid (unique and lower case)
+checkGenNames :: TypeDefT -> Result ()
+checkGenNames def = do
+  let generics = defGenerics def
+  when (nub generics /= generics)
+    (withLocations [def] $ Left $ DuplicateBinding $ show def)
+  mapM_ (checkGenName def) generics
+
+checkGenName :: TypeDefT -> T.Type -> Result ()
+checkGenName def name =
+  unless (T.isTypeVar name)
+    (withLocations [def] $ Left $ InvalidGenericParam name)
+
+-- checkGenDefined ensures that a top-level type declaration uses
+-- only the generics it defines for itself.
+checkGenDefined :: TypeDefT -> TypeDeclT -> Result ()
+checkGenDefined def decl = case decl of
+  T.TypeName _ typ        ->
+    checkGenTypeDefined def typ
+  T.Generic _ typ decls   -> do
+    checkGenTypeDefined def typ
+    mapM_ (checkGenDefined def) decls
+  T.Function _ targs tret -> do
+    mapM_ (checkGenDefined def) targs
+    checkGenDefined def tret
+  T.Struct _ tdecls       ->
+    mapM_ (checkGenDefined def . snd) tdecls
+  T.Enum _ options        ->
+    mapM_ (mapM_ (checkGenDefined def . snd) . snd) options
+
+checkGenTypeDefined :: TypeDefT -> T.Type -> Result ()
+checkGenTypeDefined def typ =
+  when (T.isTypeVar typ && typ `notElem` defGenerics def)
+    (withLocations [def] $ Left $ UndefinedGeneric typ)
 
 
 type DeclMap = Map String DeclarationT

@@ -255,7 +255,7 @@ testParsingFunc2 =
 testParsingTypedFunction :: Test
 testParsingTypedFunction =
   let text = "fn main(a Int, b Bool) Bool:\n//a comment\n  pass"
-      fnType = Just ([], T.Function [] [intT, boolT] boolT)
+      fnType = Just (T.Function [] [intT, boolT] boolT)
       expected = D.Function [] "main" fnType ["a", "b"] (sBlock [S.Pass []])
   in expectParsesA declarationParser text expected
 
@@ -296,7 +296,8 @@ expectParses' postprocess parser text expected =
              , "''\n=== expected: ===\n  "
              , show expected
              , "\n=== got ===\n  "
-             , show result ]
+             , show (postprocess result)
+             , "\n" ]
        putStrLn $ concat parts
        return False
 
