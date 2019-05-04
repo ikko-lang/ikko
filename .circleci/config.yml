@@ -6,12 +6,22 @@ jobs:
       - image: fpco/stack-build:lts
     steps:
       - checkout
+      - restore_cache:
+          name: Restore Cached Dependencies
+          keys:
+            - ikko-cache-v1-{{ checksum "stack.yaml" }}
       - run:
           name: Resolve/Update Dependencies
           command: stack setup
       - run:
           name: Run tests
           command: make test
+      - save_cache:
+          name: Cache Dependencies
+          key: ikko-cache-v1-{{ checksum "stack.yaml" }}
+          paths:
+            - "/root/.stack"
+            - ".stack-work"
 
 workflows:
   version: 2
