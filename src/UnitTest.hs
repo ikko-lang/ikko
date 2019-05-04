@@ -37,7 +37,7 @@ test name assertion =
   case assertion of
    Right _  -> return True
    Left err -> do
-     putStrLn $ name ++ " failed:\n" ++ indent "    " err
+     putStrLn $ name ++ " failed:\n" ++ indent "    " err ++ "\n"
      return False
 
 

@@ -1,6 +1,6 @@
 module prelude
 
-type Result<A, E> enum:
+type Result<a, e> enum:
   OK:
     val A
   Err:
@@ -9,7 +9,7 @@ type Result<A, E> enum:
 type World interface:
   fn open(path String) Result<File, IOError>
 
-pub fn print(world World, text T) where T: Streamer<Char>:
+pub fn print(world World, text t) where t: Streamer<Char>:
   with(world.open("/dev/stdin"), fn(stdin) =>
     text.iter().each(stdin.write_char)
   )

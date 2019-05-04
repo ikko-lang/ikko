@@ -133,6 +133,8 @@ isExplicit decl = case decl of
   D.Let      _ _ mt _   -> isJust mt
   D.Function _ _ mt _ _ -> isJust mt
   D.TypeDef{}           -> error "shouldn't see a typedef here"
+  D.TraitDecl{}         -> error "shouldn't see a trait declaration here"
+  D.InstanceDecl{}      -> True
 
 -- TODO: extend this into prelude (plus imported names)
 startingDependencies :: Set String
@@ -383,7 +385,8 @@ getExplicitType (name, decl) = case decl of
     return (name, asScheme t)
 
   D.Function _ _ mgendecl _ _ -> do
-    let Just (gens, tdecl) = mgendecl
+    let Just tdecl = mgendecl
+    let gens = T.getGenerics tdecl
     gmap <- genericMap gens
     t <- withLocations [decl] $ typeFromDecl gmap tdecl
     let varSet = Set.fromList $ map (`TyVar` Star) gens
@@ -391,6 +394,10 @@ getExplicitType (name, decl) = case decl of
 
   D.TypeDef{} ->
     error "shouldn't see a typedef here"
+
+  D.InstanceDecl{} ->
+    -- TODO!
+    return (name, asScheme tUnit)
 
 
 genericMap :: [T.Type] -> InferM (Map String Type)
@@ -513,6 +520,10 @@ inferDecl env decl = case decl of
 
   D.TypeDef{} ->
     inferErr $ CompilerBug "TypeDefs are not bindings"
+
+  D.InstanceDecl{} ->
+    -- TODO: check the type of each method
+    return $ addType tUnit decl
 
 inferStmt :: Environment -> StatementT ->
              InferM (StatementT, DoesReturn)
@@ -880,14 +891,17 @@ typeFromDecl gmap tdecl = case tdecl of
         unify t (applyTypes (getRoot t) genTypes)
         applyCurrentSub t
       _ -> error $ "TODO: figure out what causes this case " ++ show t
-  T.Function _ argTs retT -> do
+  T.Function _ argTs retT _ -> do
     argTypes <- mapM (typeFromDecl gmap) argTs
     retType <- typeFromDecl gmap retT
+    -- TODO: Include predicates
     return $ makeFuncType argTypes retType
   T.Struct{} ->
     error "shouldn't see a Struct here"
   T.Enum{} ->
     error "shouldn't see an Enum here"
+  T.Predicated{} ->
+    error "TODO: Handle predicated types"
 
 
 typeFromName :: String -> InferM Type

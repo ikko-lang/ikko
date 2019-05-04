@@ -10,8 +10,17 @@ import Data.Maybe (isNothing, fromMaybe)
 import Text.Parsec
 import Text.Parsec.Pos (sourceLine, sourceColumn, sourceName)
 import Text.Parsec.Indent
+  ( block
+  , checkIndent
+  , indented
+  , runIndentParserT
+  , withPos
+  , topLevel
+  , IndentParser
+  , IndentParserT
+  , IndentT )
 
-import AST.Annotation (Annotated, Annotation)
+import AST.Annotation (Annotated, Annotation, WithAnnotation(..))
 import qualified AST.Annotation as An
 import qualified AST.Declaration as D
 import AST.Expression (BinOp, UnaryOp)
@@ -20,25 +29,49 @@ import qualified AST.Statement as S
 import qualified AST.Type as T
 import Region (Position(..), Region(..))
 
-type File            = D.File Annotation
-type Declaration     = D.Declaration Annotation
-type FuncType        = D.FuncType Annotation
-type Statement       = S.Statement Annotation
-type MatchCase       = S.MatchCase Annotation
+type File            = D.File            Annotation
+type Declaration     = D.Declaration     Annotation
+type TraitMethod     = D.TraitMethod     Annotation
+type InstanceMethod  = D.InstanceMethod  Annotation
+type Statement       = S.Statement       Annotation
+type MatchCase       = S.MatchCase       Annotation
 type MatchExpression = S.MatchExpression Annotation
-type Expression      = E.Expression Annotation
-type Value           = E.Value Annotation
+type Expression      = E.Expression      Annotation
+type Value           = E.Value           Annotation
 type Type            = T.Type
-type TypeDecl        = T.TypeDecl Annotation
-type TypeDef         = T.TypeDef Annotation
-type EnumOption      = T.EnumOption Annotation
+type TypeDecl        = T.TypeDecl        Annotation
+type TypeDef         = T.TypeDef         Annotation
+type EnumOption      = T.EnumOption      Annotation
+type Predicate       = T.Predicate       Annotation
 
 type Parser a = IndentParser String () a
 
 keywords :: [String]
 keywords =
-  [ "package", "import", "let", "fn", "type", "struct", "enum",
-    "if", "else", "while", "for", "match", "with"
+  [ "break"
+  , "const"
+  , "continue"
+  , "else"
+  , "enum"
+  , "fn"
+  , "for"
+  , "if"
+  , "impl"
+  , "import"
+  , "in"
+  , "let"
+  , "match"
+  , "mut"
+  , "package"
+  , "pass"
+  , "pub"
+  , "self"
+  , "struct"
+  , "type"
+  , "where"
+  , "while"
+  , "with"
+  , "yield"
   ]
 
 parseFile :: String -> String -> Either String File
@@ -57,7 +90,15 @@ fileParser = do
 
 declarationParser :: Parser Declaration
 declarationParser =
-  withPos $ addLocation $ choice [letDeclaration, funcDeclaration, typeDeclaration]
+  withPos $ addLocation $ choice declarationParsers
+
+declarationParsers :: [Parser Declaration]
+declarationParsers =
+  [ letDeclaration
+  , funcDeclaration
+  , typeDeclaration
+  , traitDeclaration
+  , instanceDeclaration ]
 
 letDeclaration :: Parser Declaration
 letDeclaration = do
@@ -92,7 +133,6 @@ funcDeclaration = do
   _ <- string "fn"
   _ <- any1LinearWhitespace
   name <- valueName
-  gens <- optionMaybe $ try genericList
   _ <- char '('
   _ <- anyLinearWhitespace
   argsAndTypes <- funcArgDecl
@@ -100,29 +140,29 @@ funcDeclaration = do
   retType <- optionMaybe $ try $ do
     _ <- any1LinearWhitespace
     simpleTypeDefParser
-  mtype <- assembleFunctionType (fromMaybe [] gens) argTypes retType
+  _ <- anyWhitespace
+  predicates <- optionMaybe $ try $ do
+    _ <- string "where"
+    _ <- any1Whitespace
+    sepBy1 predicateParser commaSep
   _ <- char ':'
   _ <- statementSep
+  mtype <- assembleFunctionType argTypes retType (unwrapOr predicates [])
   D.Function [] name mtype args <$> blockStatement
 
-assembleFunctionType :: [Type] -> [Maybe TypeDecl] -> Maybe TypeDecl -> Parser (Maybe FuncType)
-assembleFunctionType gens argTypes retType =
+assembleFunctionType ::
+  [Maybe TypeDecl] ->
+  Maybe TypeDecl ->
+  [Predicate] ->
+  Parser (Maybe TypeDecl)
+assembleFunctionType argTypes retType predicates =
   if allNothings argTypes && isNothing retType
   then return Nothing
   else do
     argTs <- requireJusts argTypes
     let retT = unwrapOr retType nilType
-    let typ = T.Function [] argTs retT
-    return $ Just (gens, typ)
-
-
-genericList :: Parser [Type]
-genericList = do
-  _ <- string "<"
-  gens <- sepBy typeParser commaSep
-  _ <- string ">"
-  return gens
-
+    let typ = T.Function [] argTs retT predicates
+    return $ Just typ
 
 allNothings :: [Maybe a] -> Bool
 allNothings = all isNothing
@@ -135,9 +175,15 @@ requireJusts (Just t:ts) = do
   rest <- requireJusts ts
   return (t:rest)
 
+predicateParser :: Parser Predicate
+predicateParser = addLocation $ do
+  cls <- upperTypeName
+  _ <- any1LinearWhitespace
+  T.Predicate [] cls <$> simpleTypeDefParser
+
 typeDeclaration :: Parser Declaration
 typeDeclaration = do
-  _ <- string "type"
+  _ <- try $ string "type"
   _ <- any1LinearWhitespace
   declared <- simpleTypeDefParser
   tdef <- mustBeTDef declared
@@ -160,6 +206,122 @@ mustBeTypeName :: TypeDecl -> Parser Type
 mustBeTypeName decl = case decl of
   T.TypeName _ name -> return name
   _ -> fail "invalid generic parameter in type to declare"
+
+
+traitDeclaration :: Parser Declaration
+traitDeclaration = do
+  _ <- string "trait"
+  _ <- any1LinearWhitespace
+  traitName <- withAnnotation upperTypeName
+  mextends <- optionMaybe $ try $ do
+    _ <- any1LinearWhitespace
+    _ <- string "extends"
+    _ <- any1LinearWhitespace
+    sepBy (withAnnotation upperTypeName)
+          (char ',' *> any1LinearWhitespace)
+  _ <- char ':'
+  _ <- statementSep
+  methods <- option [] (indented >> block traitMethod)
+  return D.TraitDecl
+    { D.tdAnn     = []
+    , D.tdName    = traitName
+    , D.tdExtends = unwrapOr mextends []
+    , D.tdMethods = methods }
+
+
+traitMethod :: Parser TraitMethod
+traitMethod = withPos $ addLocation $ do
+  _ <- string "fn"
+  _ <- any1LinearWhitespace
+  name <- valueName
+  argTypes <- funcArgTypes
+  retType <- optionMaybe $ try $ labeled "trait method return type" $ do
+    _ <- any1LinearWhitespace
+    simpleTypeDefParser
+  predicates <- optionMaybe $ try $ labeled "trait method predicates" $  do
+    _ <- any1LinearWhitespace
+    _ <- string "where"
+    _ <- any1LinearWhitespace
+    sepBy1 predicateParser commaSep
+  _ <- labeled "end of trait method" statementSep
+  let methodType = T.Function [] argTypes (unwrapOr retType tVoid) (unwrapOr predicates [])
+  return D.TraitMethod
+    { D.tmAnn  = []
+    , D.tmName = name
+    , D.tmType = methodType }
+
+tVoid :: TypeDecl
+tVoid = T.TypeName [] "()"
+
+funcArgTypes :: Parser [TypeDecl]
+funcArgTypes = do
+  _ <- char '('
+  _ <- anyLinearWhitespace
+  argTypes <- sepBy argType commaSep
+  _ <- anyLinearWhitespace
+  _ <- char ')'
+  return argTypes
+
+argType :: Parser TypeDecl
+argType = try namedArgType <|> unnamedArgType
+  where unnamedArgType =
+          simpleTypeDefParser
+        namedArgType = do
+          _ <- valueName
+          _ <- any1Whitespace
+          simpleTypeDefParser
+
+
+instanceDeclaration :: Parser Declaration
+instanceDeclaration = do
+  _ <- string "impl"
+  _ <- any1LinearWhitespace
+  traitName <- withAnnotation upperTypeName
+  _ <- any1LinearWhitespace
+  implType <- simpleTypeDefParser
+
+  mpredicates <- optionMaybe $ try $ do
+    _ <- any1LinearWhitespace
+    _ <- string "where"
+    _ <- any1LinearWhitespace
+    sepBy predicateParser commaSep
+
+  _ <- char ':'
+  _ <- statementSep
+
+  methods <- option [] (indented >> block instanceMethod)
+  return D.InstanceDecl
+    { D.idAnn        = []
+    , D.idName       = traitName
+    , D.idType       = implType
+    , D.idPredicates = unwrapOr mpredicates []
+    , D.idMethods    = methods }
+
+
+instanceMethod :: Parser InstanceMethod
+instanceMethod = withPos $ addLocation $ do
+  _ <- string "fn"
+  _ <- any1LinearWhitespace
+
+  name <- valueName
+
+  _ <- char '('
+  _ <- anyLinearWhitespace
+  argNames <- sepBy valueName commaSep
+  _ <- anyLinearWhitespace
+  _ <- char ')'
+
+  _ <- char ':'
+  _ <- statementSep
+
+  body <- blockStatement
+
+  return D.InstanceMethod
+    { D.imAnn  = []
+    , D.imName = name
+    , D.imArgs = argNames
+    , D.imBody = body }
+
 
 type ArgDecls = [(String, Maybe TypeDecl)]
 
@@ -439,7 +601,7 @@ argsEnd = do
 
 castExpr :: Parser Expression
 castExpr = do
-  typ <- typeParser
+  typ <- upperTypeName -- only concrete type names, not type variables
   E.Cast [] typ <$> parenExpr'
 
 parenExpr' :: Parser Expression
@@ -461,7 +623,7 @@ valueParser = addLocation $ choice $ map try [boolParser, structValueParser, str
 
 structValueParser :: Parser Value
 structValueParser = do
-  typ <- typeName
+  typ <- upperTypeName -- only concrete type names, not type variables
   mfields <- optionMaybe $ try $ do
     _ <- string "{"
     _ <- anyWhitespace
@@ -622,7 +784,11 @@ funcTypeParser = do
   -- TODO: Accept trailing commas
   _ <- atOrBelow *> string ")"
   _ <- any1LinearWhitespace
-  T.Function [] argDecls <$> simpleTypeDefParser
+  T.Function [] argDecls <$> simpleTypeDefParser <*> funcPredParser
+
+
+funcPredParser :: Parser [Predicate]
+funcPredParser = return [] -- TODO!
 
 
 genericType :: Parser TypeDecl
@@ -669,8 +835,17 @@ escapedChar = do
 
 typeName :: Parser String
 typeName = do
+  first <- upper <|> letter
+  rest <- many $ choice [letter, digit, underscore]
+  let result = first : rest
+  when (result `elem` keywords)
+    (fail $ "expected a type name, got a keyword " ++ result)
+  return result
+
+upperTypeName :: Parser String
+upperTypeName = do
   first <- upper
-  rest <- many $ choice [letter, underscore]
+  rest <- many $ choice [letter, digit, underscore]
   return $ first : rest
 
 valueName :: Parser String
@@ -773,6 +948,11 @@ applyLeft fn (Left  a) = Left (fn a)
 applyLeft _  (Right r) = Right r
 
 
+requireJust :: Maybe a -> Parser a
+requireJust (Just a) = return a
+requireJust Nothing  = fail "required a value"
+
+
 ---- Position utilities ----
 
 position :: Parser Position
@@ -794,3 +974,10 @@ addLocation inner = do
   result <- inner
   region <- getRegion start
   return $ An.addLocation region result
+
+withAnnotation :: Parser a -> Parser (WithAnnotation a Annotation)
+withAnnotation p =
+  addLocation $ WithAnnotation [] <$> p
+
+labeled :: String -> ParsecT s u m a -> ParsecT s u m a
+labeled = flip label

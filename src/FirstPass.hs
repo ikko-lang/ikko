@@ -2,6 +2,7 @@ module FirstPass where
 
 import Control.Monad (foldM, when, unless)
 import Data.Foldable (forM_)
+import Data.List (nub)
 import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.Set (Set)
@@ -11,11 +12,13 @@ import Data.Maybe (mapMaybe, fromMaybe)
 import AST.Annotation (Annotated, Annotation, getLocation)
 import AST.Declaration
   ( Declaration(..)
-  , getDeclaredName )
+  , getDeclaredName
+  , imName
+  , imBody )
 import qualified AST.Declaration as D
 import qualified AST.Expression as E
 import qualified AST.Statement as S
-import AST.Type ( defName, defGenerics )
+import AST.Type ( defName, defGenerics, predType )
 import qualified AST.Type as T
 import Errors
   ( Error(..)
@@ -36,6 +39,7 @@ import Util.Functions
 
 
 type DeclarationT     = D.Declaration     Annotation
+type InstanceMethodT  = D.InstanceMethod  Annotation
 type ExpressionT      = E.Expression      Annotation
 type FileT            = D.File            Annotation
 type MatchCaseT       = S.MatchCase       Annotation
@@ -59,7 +63,6 @@ data Constructor =
   }
   deriving (Eq, Show)
 
-
 valueType :: Constructor -> Scheme
 valueType ctor =
   let (Scheme n (TAp _ ret)) = ctorType ctor
@@ -75,6 +78,8 @@ valueType ctor =
 -- * (TODO) Check that match cases do not completely overlap
 firstPass :: FileT -> Result Module
 firstPass file = do
+  checkGenericUsage (gatherTypes file)
+
   ctors <- gatherConstructors file
   checkTypesExist ctors
 
@@ -84,6 +89,56 @@ firstPass file = do
   mapM_ checkDupVars binds
 
   return Module { bindings=binds, constructors=ctors }
+
+-- gatherTypes selects the declarations that are type declarations
+gatherTypes :: FileT -> [(TypeDefT, TypeDeclT)]
+gatherTypes file =
+  [(def, decl) | (TypeDef _ def decl) <- file]
+
+-- and don't use generics not declared for the type
+checkGenericUsage :: [(TypeDefT, TypeDeclT)] -> Result ()
+checkGenericUsage decls = do
+  mapM_ (checkGenNames . fst) decls
+  mapM_ (uncurry checkGenDefined) decls
+
+-- checkGenNames ensures that the type parameters used for generics
+-- are valid (unique and lower case)
+checkGenNames :: TypeDefT -> Result ()
+checkGenNames def = do
+  let generics = defGenerics def
+  when (nub generics /= generics)
+    (withLocations [def] $ Left $ DuplicateBinding $ show def)
+  mapM_ (checkGenName def) generics
+
+checkGenName :: TypeDefT -> T.Type -> Result ()
+checkGenName def name =
+  unless (T.isTypeVar name)
+    (withLocations [def] $ Left $ InvalidGenericParam name)
+
+-- checkGenDefined ensures that a top-level type declaration uses
+-- only the generics it defines for itself.
+checkGenDefined :: TypeDefT -> TypeDeclT -> Result ()
+checkGenDefined def decl = case decl of
+  T.TypeName _ typ              ->
+    checkGenTypeDefined def typ
+  T.Generic _ typ decls         -> do
+    checkGenTypeDefined def typ
+    mapM_ (checkGenDefined def) decls
+  T.Function _ targs tret preds -> do
+    mapM_ (checkGenDefined def) targs
+    checkGenDefined def tret
+    mapM_ (checkGenDefined def . predType) preds
+  T.Struct _ tdecls             ->
+    mapM_ (checkGenDefined def . snd) tdecls
+  T.Enum _ options              ->
+    mapM_ (mapM_ (checkGenDefined def . snd) . snd) options
+  T.Predicated{}                ->
+    error "Compiler error: Top level declarations cannot have predicates"
+
+checkGenTypeDefined :: TypeDefT -> T.Type -> Result ()
+checkGenTypeDefined def typ =
+  when (T.isTypeVar typ && typ `notElem` defGenerics def)
+    (withLocations [def] $ Left $ UndefinedGeneric typ)
 
 
 type DeclMap = Map String DeclarationT
@@ -173,6 +228,10 @@ makeConstructors ((t,d):ts) constrs = do
           sch = Scheme kinds (makeFuncType [] typ)
           ctor = Constructor { ctorFields=[], ctorType=sch }
       in addEnumOptions kinds generalized sub typ options (Map.insert name ctor constrs)
+
+    T.Predicated{}       ->
+      error "compiler error: should not see a predicated type here"
+
   makeConstructors ts constrs'
 
 mustBeUnique :: String -> Map String b -> Result ()
@@ -203,13 +262,16 @@ convertDecl sub decl = case decl of
     genTypes <- mapM (convertDecl sub) gens
     let k = kindN $ length gens
     return $ applyTypes (TCon tname k) genTypes
-  T.Function _ argTs retT -> do
+  T.Function _ argTs retT _ -> do
     argTypes <- mapM (convertDecl sub) argTs
     retType <- convertDecl sub retT
+    -- TODO: Handle predicates
     return $ makeFuncType argTypes retType
   T.Struct{}              ->
     withLocations [decl] $ Left InvalidAnonStructure
   T.Enum{}                ->
+    withLocations [decl] $ Left InvalidAnonStructure
+  T.Predicated{}          ->
     withLocations [decl] $ Left InvalidAnonStructure
 
 -- select and deduplicate function and let bindings
@@ -228,12 +290,24 @@ checkReturns Let{} =
 checkReturns (Function _ name _ _ stmt) = do
   _ <- checkStmtsReturn name Never [stmt]
   return ()
+checkReturns TraitDecl{} =
+  return ()
+checkReturns is@InstanceDecl{} =
+  mapM_ checkMethodReturns (idMethods is)
+
+checkMethodReturns :: InstanceMethodT -> Result ()
+checkMethodReturns im = do
+  _ <- checkStmtsReturn (imName im) Never [imBody im]
+  return ()
 
 checkDupVars :: DeclarationT -> Result ()
 checkDupVars decl = case decl of
   TypeDef{}          -> return ()
   Let _ _ _ e        -> checkDupVarsExpr e
   Function _ _ _ _ s -> checkDupVarsStmt s
+  TraitDecl{}        -> return ()
+  InstanceDecl{}     ->
+    mapM_ (checkDupVarsStmt . imBody) (idMethods decl)
 
 
 checkDupVarsStmt :: StatementT -> Result ()
@@ -338,8 +412,9 @@ data DoesReturn
   deriving (Eq, Show)
 
 isTypeDecl :: DeclarationT -> Bool
-isTypeDecl TypeDef{} = True
-isTypeDecl _         = False
+isTypeDecl TypeDef{}   = True
+isTypeDecl TraitDecl{} = True
+isTypeDecl _           = False
 
 -- TODO: add the ability to combine multiple files into a module,
 --   but check imports on a per-file basis
