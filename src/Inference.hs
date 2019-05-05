@@ -858,6 +858,8 @@ typeFromDecl gmap tdecl = case tdecl of
     error "shouldn't see a Struct here"
   T.Enum{} ->
     error "shouldn't see an Enum here"
+  T.Predicated{} ->
+    error "TODO: Handle predicated types"
 
 
 -- TODO: Check the kind of the type (which will require a lot of plumbing)
