@@ -9,6 +9,16 @@ import AST.Annotation (Annotated)
 
 type Type = String
 
+{-
+TypeDecl serves dual purposes.
+
+It is used when declaring a type, like `type X struct {...}`. In this case,
+the TypeName and Generic variants are presently not allowed at the top level.
+
+It is also used to record types for let declarations and function declarations,
+when those are given an explicit type like `let x Int = ...`. In this case,
+the Struct and Enum variants are not allowed.
+-}
 data TypeDecl a
   = TypeName a Type
   | Generic a Type [TypeDecl a] -- e.g. Pair<Int, b>
