@@ -31,6 +31,7 @@ type Type            = T.Type
 type TypeDecl        = T.TypeDecl Annotation
 type TypeDef         = T.TypeDef Annotation
 type EnumOption      = T.EnumOption Annotation
+type Predicate       = T.Predicate Annotation
 
 type Parser a = IndentParser String () a
 
@@ -98,21 +99,29 @@ funcDeclaration = do
   retType <- optionMaybe $ try $ do
     _ <- any1LinearWhitespace
     simpleTypeDefParser
-  mtype <- assembleFunctionType argTypes retType
+  _ <- anyWhitespace
+  predicates <- optionMaybe $ try $ do
+    _ <- string "where"
+    _ <- any1Whitespace
+    sepBy1 predicateParser commaSep
   _ <- char ':'
   _ <- statementSep
+  mtype <- assembleFunctionType argTypes retType (unwrapOr predicates [])
   D.Function [] name mtype args <$> blockStatement
 
-assembleFunctionType :: [Maybe TypeDecl] -> Maybe TypeDecl -> Parser (Maybe T.TypeDecl)
-assembleFunctionType argTypes retType =
+assembleFunctionType ::
+  [Maybe TypeDecl] ->
+  Maybe TypeDecl ->
+  [Predicate] ->
+  Parser (Maybe TypeDecl)
+assembleFunctionType argTypes retType predicates =
   if allNothings argTypes && isNothing retType
   then return Nothing
   else do
     argTs <- requireJusts argTypes
     let retT = unwrapOr retType nilType
-    let typ = T.Function [] argTs retT
+    let typ = T.Function [] argTs retT predicates
     return $ Just typ
-
 
 allNothings :: [Maybe a] -> Bool
 allNothings = all isNothing
@@ -124,6 +133,13 @@ requireJusts (Nothing:_) =
 requireJusts (Just t:ts) = do
   rest <- requireJusts ts
   return (t:rest)
+
+predicateParser :: Parser Predicate
+predicateParser = addLocation $ do
+  cls <- upperTypeName
+  _ <- any1LinearWhitespace
+  t <- typeDefParser
+  return $ T.Predicate [] cls t
 
 typeDeclaration :: Parser Declaration
 typeDeclaration = do
@@ -612,7 +628,11 @@ funcTypeParser = do
   -- TODO: Accept trailing commas
   _ <- atOrBelow *> string ")"
   _ <- any1LinearWhitespace
-  T.Function [] argDecls <$> simpleTypeDefParser
+  T.Function [] argDecls <$> simpleTypeDefParser <*> funcPredParser
+
+
+funcPredParser :: Parser [Predicate]
+funcPredParser = return [] -- TODO!
 
 
 genericType :: Parser TypeDecl

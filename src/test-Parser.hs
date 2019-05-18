@@ -31,6 +31,11 @@ type StatementT       = S.Statement       Annotation
 type TypeDeclT        = T.TypeDecl        Annotation
 
 
+type Val  = E.Value Annotation
+type Expr = E.Expression Annotation
+type Stmt = S.Statement Annotation
+
+
 main = runTests "Parser" tests
 
 boolT :: TypeDeclT
@@ -42,9 +47,7 @@ stringT = T.TypeName [] "String"
 nilT :: TypeDeclT
 nilT = T.TypeName [] "()"
 
-type Val = E.Value Annotation
-type Expr = E.Expression Annotation
-type Stmt = S.Statement Annotation
+tVar s = T.TypeName [] s
 
 floatVal :: Float -> Val
 floatVal = E.FloatVal []
@@ -197,6 +200,7 @@ tests =
   , testParsingMatch
   , testParsingFunc
   , testParsingFunc2
+  , testParsingFunc3
   , testParsingTypedFunction
   , testParsingTypeDecl
   ]
@@ -252,10 +256,20 @@ testParsingFunc2 =
       expected = D.Function [] "main" Nothing ["a", "b"] (sBlock [S.Pass []])
   in expectParsesA declarationParser text expected
 
+-- func 3 includes class predicates
+testParsingFunc3 :: Test
+testParsingFunc3 =
+  let text = "fn foo(x t, y t) t where Ord t:\n  return x"
+      pred = T.Predicate [] "Ord" (tVar "t")
+      tdecl = Just $ T.Function [] [tVar "t", tVar "t"] (tVar "t") [pred]
+      body = sBlock [S.Return [] $ Just $ eVar "x"]
+      expected = D.Function [] "foo" tdecl ["x", "y"] body
+  in expectParsesA declarationParser text expected
+
 testParsingTypedFunction :: Test
 testParsingTypedFunction =
   let text = "fn main(a Int, b Bool) Bool:\n//a comment\n  pass"
-      fnType = Just (T.Function [] [intT, boolT] boolT)
+      fnType = Just (T.Function [] [intT, boolT] boolT [])
       expected = D.Function [] "main" fnType ["a", "b"] (sBlock [S.Pass []])
   in expectParsesA declarationParser text expected
 

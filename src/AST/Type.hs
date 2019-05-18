@@ -22,7 +22,7 @@ the Struct and Enum variants are not allowed.
 data TypeDecl a
   = TypeName a Type
   | Generic a Type [TypeDecl a] -- e.g. Pair<Int, b>
-  | Function a [TypeDecl a] (TypeDecl a)
+  | Function a [TypeDecl a] (TypeDecl a) [Predicate a]
   | Struct a [(String, TypeDecl a)]
   | Enum a [(String, EnumOption a)]
   | Predicated a [Predicate a] (TypeDecl a)
@@ -54,6 +54,9 @@ data Predicate a
 instance Annotated Predicate where
   --  use all default methods
 
+predType :: Predicate a -> TypeDecl a
+predType (Predicate _ _ td) = td
+
 
 data ClassDecl a
   = ClassDecl
@@ -81,20 +84,33 @@ instance Annotated ClassMethod where
   --  use all default methods
 
 
-getGenerics :: TypeDecl a -> [Type]
-getGenerics t = case t of
-  TypeName _ name       ->
-    [name | isTypeVar name]
-  Generic  _ name ts    ->
-    [name | isTypeVar name] ++ concatMap getGenerics ts
-  Function _ tArgs tRet ->
-    concatMap getGenerics tArgs ++ getGenerics tRet
-  Struct _ fields       ->
-    concatMap (getGenerics . snd) fields
-  Enum _ options        ->
-    concatMap (concatMap (getGenerics . snd) . snd) options
-  Predicated _ preds td ->
-    getGenerics td ++ concatMap getGenerics [pt | Predicate _ _ pt <- preds]
+class GetGenerics a where
+  getGenerics :: a -> [Type]
+
+instance GetGenerics (TypeDecl a) where
+  getGenerics t = case t of
+    TypeName _ name       ->
+      [name | isTypeVar name]
+    Generic  _ name ts    ->
+      [name | isTypeVar name] ++ getGenerics ts
+    Function _ tArgs tRet preds ->
+      getGenerics tArgs ++ getGenerics tRet ++ getGenerics preds
+    Struct _ fields       ->
+      getGenerics fields
+    Enum _ options        ->
+      getGenerics options
+    Predicated _ preds td ->
+      getGenerics td ++ getGenerics preds
+
+instance (GetGenerics a) => GetGenerics [a] where
+  getGenerics ts = concatMap getGenerics ts
+
+instance (GetGenerics a) => GetGenerics (b, a) where
+  getGenerics (_, t) = getGenerics t
+
+instance GetGenerics (Predicate a) where
+  getGenerics (Predicate _ _ pt) = getGenerics pt
+
 
 isTypeVar :: Type -> Bool
 isTypeVar (c:_) = isLower c

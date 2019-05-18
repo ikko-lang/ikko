@@ -850,9 +850,10 @@ typeFromDecl gmap tdecl = case tdecl of
         unify t (TCon con genTypes)
         applyCurrentSub t
       _ -> error "TODO: figure out what causes this case"
-  T.Function _ argTs retT -> do
+  T.Function _ argTs retT preds -> do
     argTypes <- mapM (typeFromDecl gmap) argTs
     retType <- typeFromDecl gmap retT
+    -- TODO: Include predicates
     return $ TFunc argTypes retType
   T.Struct{} ->
     error "shouldn't see a Struct here"

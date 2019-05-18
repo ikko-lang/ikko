@@ -16,7 +16,7 @@ import AST.Declaration
 import qualified AST.Declaration as D
 import qualified AST.Expression as E
 import qualified AST.Statement as S
-import AST.Type ( defName, defGenerics )
+import AST.Type ( TypeDecl, TypeDef, defName, defGenerics, predType )
 import qualified AST.Type as T
 import Errors
   ( Error(..)
@@ -106,18 +106,21 @@ checkGenName def name =
 -- only the generics it defines for itself.
 checkGenDefined :: TypeDefT -> TypeDeclT -> Result ()
 checkGenDefined def decl = case decl of
-  T.TypeName _ typ        ->
+  T.TypeName _ typ              ->
     checkGenTypeDefined def typ
-  T.Generic _ typ decls   -> do
+  T.Generic _ typ decls         -> do
     checkGenTypeDefined def typ
     mapM_ (checkGenDefined def) decls
-  T.Function _ targs tret -> do
+  T.Function _ targs tret preds -> do
     mapM_ (checkGenDefined def) targs
     checkGenDefined def tret
-  T.Struct _ tdecls       ->
+    mapM_ (checkGenDefined def . predType) preds
+  T.Struct _ tdecls             ->
     mapM_ (checkGenDefined def . snd) tdecls
-  T.Enum _ options        ->
+  T.Enum _ options              ->
     mapM_ (mapM_ (checkGenDefined def . snd) . snd) options
+  T.Predicated _ preds t        ->
+    error "TODO"
 
 checkGenTypeDefined :: TypeDefT -> T.Type -> Result ()
 checkGenTypeDefined def typ =
@@ -240,9 +243,10 @@ convertDecl sub decl = case decl of
   T.Generic  _ tname gens -> do
     genTypes <- mapM (convertDecl sub) gens
     return $ TCon tname genTypes
-  T.Function _ argTs retT -> do
+  T.Function _ argTs retT preds -> do
     argTypes <- mapM (convertDecl sub) argTs
     retType <- convertDecl sub retT
+    -- TODO: Handle predicates
     return $ TFunc argTypes retType
   T.Struct{}              ->
     withLocations [decl] $ Left InvalidAnonStructure
