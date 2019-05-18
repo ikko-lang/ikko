@@ -2,7 +2,8 @@
 
 module AST.Declaration where
 
-import AST.Annotation (Annotated)
+
+import AST.Annotation (Annotated, WithAnnotation, unannotate)
 import AST.Expression (Expression)
 import AST.Statement (Statement)
 import AST.Type (TypeDecl, TypeDef, Predicate, defName)
@@ -14,10 +15,28 @@ data Declaration a
   = Let a String (Maybe (TypeDecl a)) (Expression a)
   | Function a String (Maybe (TypeDecl a)) [String] (Statement a)
   | TypeDef a (TypeDef a) (TypeDecl a)
+  | TraitDecl
+    { tdAnn :: a
+    , tdName :: WithAnnotation String a -- Name of trait declared
+    , tdExtends :: [WithAnnotation String a] -- Parent trait names
+    , tdMethods :: [TraitMethod a]
+    }
   deriving (Eq, Show, Functor, Foldable, Traversable)
 
 
 instance Annotated Declaration where
+  --  use all default methods
+
+
+data TraitMethod a
+  = TraitMethod
+    { tmAnn :: a
+    , tmName :: String
+    , tmType :: TypeDecl a
+    }
+  deriving (Eq, Show, Functor, Foldable, Traversable)
+
+instance Annotated TraitMethod where
   --  use all default methods
 
 
@@ -51,3 +70,4 @@ getDeclaredName :: Declaration a -> String
 getDeclaredName (Let      _ name _ _)   = name
 getDeclaredName (Function _ name _ _ _) = name
 getDeclaredName (TypeDef  _ tdef _)     = defName tdef
+getDeclaredName td@TraitDecl{}          = unannotate $ tdName td

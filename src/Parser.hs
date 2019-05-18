@@ -138,8 +138,7 @@ predicateParser :: Parser Predicate
 predicateParser = addLocation $ do
   cls <- upperTypeName
   _ <- any1LinearWhitespace
-  t <- typeDefParser
-  return $ T.Predicate [] cls t
+  T.Predicate [] cls <$> typeDefParser
 
 typeDeclaration :: Parser Declaration
 typeDeclaration = do

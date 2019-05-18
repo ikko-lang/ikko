@@ -1,25 +1,25 @@
-type PrettyPrint a class:
-    fn prettyPrint(a): String
+trait PrettyPrint:
+    fn prettyPrint(Self): String
 
-impl PrettyPrint for Int:
+impl PrettyPrint Int:
     fn prettyPrint(n):
         return String(n)
 
 // Instances can have additional predicates
-impl PrettyPrint for [a] where (PrettyPrint a):
+impl PrettyPrint [a] where PrettyPrint a:
     fn prettyPrint(xs):
         return "[" + join(", ", map(prettyPrint, xs)) + "]"
 
-// Methods on a class can have predicates
-type Logger a class:
-    fn log(a) where PrettyPrint a
+// Methods on a trait can have predicates
+trait Logger extends PrettyPrint:
+    fn log(Self, to t) where Writer t
 
-type Counter a class:
+trait Counter a:
     fn getCount(String): Int
     fn alterCount(String, Int)
 
 // Classes can have superclasses
-type MyClass a class extends Counter a, Logger a:
+trait MyClass a where Counter a, Logger a:
      fn logCount(String)
 
 // function that uses a typeclass

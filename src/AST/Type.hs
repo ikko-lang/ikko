@@ -103,7 +103,7 @@ instance GetGenerics (TypeDecl a) where
       getGenerics td ++ getGenerics preds
 
 instance (GetGenerics a) => GetGenerics [a] where
-  getGenerics ts = concatMap getGenerics ts
+  getGenerics = concatMap getGenerics
 
 instance (GetGenerics a) => GetGenerics (b, a) where
   getGenerics (_, t) = getGenerics t

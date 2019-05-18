@@ -1,3 +1,5 @@
+{-# LANGUAGE DeriveFunctor, DeriveFoldable, DeriveTraversable #-}
+
 module AST.Annotation where
 
 import Region (Region)
@@ -20,19 +22,35 @@ class (Functor f, Foldable f, Traversable f) => Annotated f where
           return $ if replace then ann else val
     in evalDoOnce $ traverse replaceFirst ast
 
+
 type Annotation = [Metadata]
 
 emptyAnnotation :: Annotation
 emptyAnnotation = []
+
 
 data Metadata
   = Location Region
   | Typed Type
   deriving (Eq, Show)
 
+
 addAnnotation :: (Annotated a) => Metadata -> a Annotation -> a Annotation
 addAnnotation metadata a =
   setAnnotation (metadata : getAnnotation a) a
+
+
+data WithAnnotation b a =
+  WithAnnotation a b
+  deriving (Eq, Show, Functor, Foldable, Traversable)
+
+instance Annotated (WithAnnotation b) where
+  --  use all default methods
+
+
+unannotate :: WithAnnotation b a -> b
+unannotate (WithAnnotation _ x) = x
+
 
 addType :: (Annotated a) => Type -> a Annotation -> a Annotation
 addType t =

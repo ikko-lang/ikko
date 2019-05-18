@@ -47,7 +47,7 @@ stringT = T.TypeName [] "String"
 nilT :: TypeDeclT
 nilT = T.TypeName [] "()"
 
-tVar s = T.TypeName [] s
+tVar = T.TypeName []
 
 floatVal :: Float -> Val
 floatVal = E.FloatVal []
@@ -201,6 +201,7 @@ tests =
   , testParsingFunc
   , testParsingFunc2
   , testParsingFunc3
+  , testParsingFunc4
   , testParsingTypedFunction
   , testParsingTypeDecl
   ]
@@ -262,6 +263,16 @@ testParsingFunc3 =
   let text = "fn foo(x t, y t) t where Ord t:\n  return x"
       pred = T.Predicate [] "Ord" (tVar "t")
       tdecl = Just $ T.Function [] [tVar "t", tVar "t"] (tVar "t") [pred]
+      body = sBlock [S.Return [] $ Just $ eVar "x"]
+      expected = D.Function [] "foo" tdecl ["x", "y"] body
+  in expectParsesA declarationParser text expected
+
+testParsingFunc4 :: Test
+testParsingFunc4 =
+  let text = "fn foo(x t, y t) t\n where Ord t, Show t:\n  return x"
+      pred1 = T.Predicate [] "Ord" (tVar "t")
+      pred2 = T.Predicate [] "Show" (tVar "t")
+      tdecl = Just $ T.Function [] [tVar "t", tVar "t"] (tVar "t") [pred1, pred2]
       body = sBlock [S.Return [] $ Just $ eVar "x"]
       expected = D.Function [] "foo" tdecl ["x", "y"] body
   in expectParsesA declarationParser text expected
