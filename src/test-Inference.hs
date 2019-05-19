@@ -3,7 +3,7 @@ module Main where
 import qualified Data.Map as Map
 import Debug.Trace (trace)
 
-import AST.Annotation (Annotated, getType)
+import AST.Annotation (Annotated, Annotation, getType)
 import qualified AST.Declaration as D
 import qualified AST.Expression as E
 import qualified AST.Statement as S
@@ -60,6 +60,16 @@ import UnitTest
   , assertFalse
   , runTests
   , test )
+
+
+type DeclarationT     = D.Declaration     Annotation
+type ExpressionT      = E.Expression      Annotation
+type ValueT           = E.Value           Annotation
+type MatchCaseT       = S.MatchCase       Annotation
+type MatchExpressionT = S.MatchExpression Annotation
+type StatementT       = S.Statement       Annotation
+type TypeDeclT        = T.TypeDecl        Annotation
+
 
 main = runTests "Inference" tests
 
@@ -508,7 +518,7 @@ assertModuleTypes name sch result = case result of
      Just resultSch -> assertSchemeUnifies sch resultSch
 
 
-makeModule :: [(String, D.Declaration)] -> Module
+makeModule :: [(String, DeclarationT)] -> Module
 makeModule bindings =
   let bindMap = Map.fromList bindings
   in Module
@@ -516,7 +526,7 @@ makeModule bindings =
      , constructors=Map.empty }
 
 
-findGroups :: [(String, D.Declaration)] -> [[String]]
+findGroups :: [(String, DeclarationT)] -> [[String]]
 findGroups bindings =
   getGroupNames $ makeBindGroup $ makeModule bindings
 
@@ -528,19 +538,19 @@ getGroupNames bg = map (map fst) (implicitBindings bg)
 returnJust expr = S.Return [] (Just expr)
 
 
-assertExprTypes :: Type -> E.Expression -> Assertion
+assertExprTypes :: Type -> ExpressionT -> Assertion
 assertExprTypes t expr = assertTypes t expr inferExpr
 
 
-assertExprFails :: E.Expression -> Assertion
+assertExprFails :: ExpressionT -> Assertion
 assertExprFails expr = assertFails expr inferExpr
 
 
-assertDeclTypes :: Type -> D.Declaration -> Assertion
+assertDeclTypes :: Type -> DeclarationT -> Assertion
 assertDeclTypes t decl = assertTypes t decl inferDecl
 
 
-assertDeclFails :: D.Declaration -> Assertion
+assertDeclFails :: DeclarationT -> Assertion
 assertDeclFails decl = assertFails decl inferDecl
 
 
@@ -611,19 +621,19 @@ testInstantiate (Scheme n t) =
   in apply sub t
 
 
-intVal :: Int -> E.Expression
+intVal :: Int -> ExpressionT
 intVal n = E.Val [] $ E.IntVal [] n
 
 
-strVal :: String -> E.Expression
+strVal :: String -> ExpressionT
 strVal s = E.Val [] $ E.StrVal [] s
 
 
-boolVal :: Bool -> E.Expression
+boolVal :: Bool -> ExpressionT
 boolVal b = E.Val [] $ E.BoolVal [] b
 
 
-func :: String -> [String] -> [S.Statement] -> D.Declaration
+func :: String -> [String] -> [StatementT] -> DeclarationT
 func name args stmts =
   let fnbody = S.Block [] stmts
   in D.Function [] name Nothing args fnbody

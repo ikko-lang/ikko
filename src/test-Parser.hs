@@ -6,13 +6,12 @@ import Data.Functor.Identity (runIdentity)
 import Text.Parsec (eof, ParseError)
 import Text.Parsec.Indent
 
-import AST.Annotation (Annotated, removeAnnotations)
+import AST.Annotation (Annotated, Annotation, removeAnnotations)
 import qualified AST.Declaration as D
 import qualified AST.Expression as E
 import qualified AST.Statement as S
 import qualified AST.Type as T
 import Parser
-
 
 import UnitTest
   ( Assertion
@@ -22,20 +21,30 @@ import UnitTest
   , runTests
   , test )
 
+
+type DeclarationT     = D.Declaration     Annotation
+type ExpressionT      = E.Expression      Annotation
+type ValueT           = E.Value           Annotation
+type MatchCaseT       = S.MatchCase       Annotation
+type MatchExpressionT = S.MatchExpression Annotation
+type StatementT       = S.Statement       Annotation
+type TypeDeclT        = T.TypeDecl        Annotation
+
+
 main = runTests "Parser" tests
 
-boolT :: T.TypeDecl
+boolT :: TypeDeclT
 boolT = T.TypeName [] "Bool"
-intT :: T.TypeDecl
+intT :: TypeDeclT
 intT = T.TypeName [] "Int"
-stringT :: T.TypeDecl
+stringT :: TypeDeclT
 stringT = T.TypeName [] "String"
-nilT :: T.TypeDecl
+nilT :: TypeDeclT
 nilT = T.TypeName [] "()"
 
-type Val = E.Value
-type Expr = E.Expression
-type Stmt = S.Statement
+type Val = E.Value Annotation
+type Expr = E.Expression Annotation
+type Stmt = S.Statement Annotation
 
 floatVal :: Float -> Val
 floatVal = E.FloatVal []
@@ -64,7 +73,7 @@ eBinary = E.Binary []
 sLet :: String -> Expr -> Stmt
 sLet name = S.Let [] name Nothing
 
-sLetT :: String -> T.TypeDecl -> Expr -> Stmt
+sLetT :: String -> TypeDeclT -> Expr -> Stmt
 sLetT name t = S.Let [] name (Just t)
 
 sBlock :: [Stmt] -> Stmt
@@ -260,7 +269,12 @@ testParsingTypeDecl =
 
 ---- Utilities ----
 
-expectParsesA :: (Eq a, Show a, Annotated a) => Parser a -> String -> a -> Test
+expectParsesA ::
+  (Eq (a Annotation), Show (a Annotation), Annotated a) =>
+  Parser (a Annotation) ->
+  String ->
+  a Annotation ->
+  Test
 expectParsesA = expectParses' removeAnnotations
 
 expectParses :: (Eq a, Show a) => Parser a -> String -> a -> Test

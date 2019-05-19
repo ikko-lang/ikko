@@ -11,23 +11,27 @@ import Text.Parsec
 import Text.Parsec.Pos (sourceLine, sourceColumn, sourceName)
 import Text.Parsec.Indent
 
-import AST.Annotation (Annotated)
-import qualified AST.Annotation as Annotation
+import AST.Annotation (Annotated, Annotation)
+import qualified AST.Annotation as An
 import qualified AST.Declaration as D
 import AST.Expression (BinOp, UnaryOp)
 import qualified AST.Expression as E
 import qualified AST.Statement as S
-import AST.Type (Type, TypeDecl, TypeDef)
 import qualified AST.Type as T
 import Region (Position(..), Region(..))
 
-type File = D.File
-type Declaration = D.Declaration
-type Statement = S.Statement
-type MatchCase = S.MatchCase
-type MatchExpression = S.MatchExpression
-type Expression = E.Expression
-type Value = E.Value
+type File            = D.File Annotation
+type Declaration     = D.Declaration Annotation
+type FuncType        = D.FuncType Annotation
+type Statement       = S.Statement Annotation
+type MatchCase       = S.MatchCase Annotation
+type MatchExpression = S.MatchExpression Annotation
+type Expression      = E.Expression Annotation
+type Value           = E.Value Annotation
+type Type            = T.Type
+type TypeDecl        = T.TypeDecl Annotation
+type TypeDef         = T.TypeDef Annotation
+type EnumOption      = T.EnumOption Annotation
 
 type Parser a = IndentParser String () a
 
@@ -101,7 +105,7 @@ funcDeclaration = do
   _ <- statementSep
   D.Function [] name mtype args <$> blockStatement
 
-assembleFunctionType :: [Type] -> [Maybe TypeDecl] -> Maybe TypeDecl -> Parser (Maybe D.FuncType)
+assembleFunctionType :: [Type] -> [Maybe TypeDecl] -> Maybe TypeDecl -> Parser (Maybe FuncType)
 assembleFunctionType gens argTypes retType =
   if allNothings argTypes && isNothing retType
   then return Nothing
@@ -580,7 +584,7 @@ enumTypeParser = do
 enumHeader :: Parser String
 enumHeader = string "enum:" <* statementSep
 
-enumField :: Parser (String, T.EnumOption)
+enumField :: Parser (String, EnumOption)
 enumField = withPos $ do
   name <- typeName
   fields <- enumOptionFields <|> (statementSep $> [])
@@ -780,9 +784,9 @@ getRegion start = do
   name <- sourceName <$> getPosition
   return Region { pFileName=name, pStart=start, pEnd=end }
 
-addLocation :: (Annotated a) => Parser a -> Parser a
+addLocation :: (Annotated a) => Parser (a Annotation) -> Parser (a Annotation)
 addLocation inner = do
   start <- position
   result <- inner
   region <- getRegion start
-  return $ Annotation.addLocation region result
+  return $ An.addLocation region result

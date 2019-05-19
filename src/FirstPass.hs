@@ -8,14 +8,14 @@ import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Maybe (mapMaybe, fromMaybe)
 
-import AST.Annotation (Annotated, getLocation)
+import AST.Annotation (Annotated, Annotation, getLocation)
 import AST.Declaration
   ( Declaration(..)
-  , File
   , getDeclaredName )
+import qualified AST.Declaration as D
 import qualified AST.Expression as E
 import qualified AST.Statement as S
-import AST.Type ( TypeDecl, TypeDef, defName, defGenerics )
+import AST.Type ( defName, defGenerics )
 import qualified AST.Type as T
 import Errors
   ( Error(..)
@@ -23,9 +23,20 @@ import Errors
 import Types (Scheme(..), Type(..), Substitution, makeSub)
 import Util.Functions
 
+
+type DeclarationT     = D.Declaration     Annotation
+type ExpressionT      = E.Expression      Annotation
+type FileT            = D.File            Annotation
+type MatchCaseT       = S.MatchCase       Annotation
+type MatchExpressionT = S.MatchExpression Annotation
+type StatementT       = S.Statement       Annotation
+type TypeDeclT        = T.TypeDecl        Annotation
+type TypeDefT         = T.TypeDef         Annotation
+
+
 data Module =
   Module
-  { bindings :: Map String Declaration
+  { bindings :: Map String DeclarationT
   , constructors :: Map String Constructor
   }
   deriving (Show)
@@ -51,7 +62,7 @@ valueType ctor =
 -- * Splits types from other bindings
 -- * (TODO) Check that match statements have at least one case
 -- * (TODO) Check that match cases do not completely overlap
-firstPass :: File -> Result Module
+firstPass :: FileT -> Result Module
 firstPass file = do
   ctors <- gatherConstructors file
   checkTypesExist ctors
@@ -64,9 +75,9 @@ firstPass file = do
   return Module { bindings=binds, constructors=ctors }
 
 
-type DeclMap = Map String Declaration
+type DeclMap = Map String DeclarationT
 
-ensureDeclsAreUnique :: File -> Result DeclMap
+ensureDeclsAreUnique :: FileT -> Result DeclMap
 ensureDeclsAreUnique [] = return Map.empty
 ensureDeclsAreUnique (d:ds) = do
   rest <- ensureDeclsAreUnique ds
@@ -104,11 +115,11 @@ checkTypeDefined definitions name =
   unless (Map.member name definitions)
     (Left $ UndefinedType name)
 
-gatherConstructors :: File -> Result (Map String Constructor)
+gatherConstructors :: FileT -> Result (Map String Constructor)
 gatherConstructors file =
   makeConstructors [(def, decl) | (TypeDef _ def decl) <- file] Map.empty
 
-makeConstructors :: [(TypeDef, TypeDecl)] -> Map String Constructor -> Result (Map String Constructor)
+makeConstructors :: [(TypeDefT, TypeDeclT)] -> Map String Constructor -> Result (Map String Constructor)
 makeConstructors []         constrs = return constrs
 makeConstructors ((t,d):ts) constrs = do
   let name = defName t
@@ -156,7 +167,7 @@ createStructFields nGens typ = zipWith makePair
   where makePair fname ftype = (fname, Scheme nGens (TFunc [typ] ftype))
 
 
-addEnumOptions :: Int -> t -> Substitution -> Type -> [(String, [(String, TypeDecl)])]  ->
+addEnumOptions :: Int -> t -> Substitution -> Type -> [(String, [(String, TypeDeclT)])]  ->
   Map String Constructor -> Either Error (Map String Constructor)
 addEnumOptions _     _           _   _   []         constrs = return constrs
 addEnumOptions nGens generalized sub typ ((n,t):os) constrs = do
@@ -172,7 +183,7 @@ addEnumOptions nGens generalized sub typ ((n,t):os) constrs = do
   addEnumOptions nGens generalized sub typ os (Map.insert n ctor constrs)
 
 
-convertDecl :: Substitution -> TypeDecl -> Result Type
+convertDecl :: Substitution -> TypeDeclT -> Result Type
 convertDecl sub decl = case decl of
   T.TypeName _ tname      ->
     return $ fromMaybe (TCon tname []) $ Map.lookup (TVar tname) sub
@@ -189,14 +200,14 @@ convertDecl sub decl = case decl of
     withLocations [decl] $ Left InvalidAnonStructure
 
 -- select and deduplicate function and let bindings
-gatherBindings :: DeclMap -> Result (Map String Declaration)
+gatherBindings :: DeclMap -> Result (Map String DeclarationT)
 gatherBindings decls =
   let binds = Map.filter (not . isTypeDecl) decls
       addBinding bs decl =
         return $ Map.insert (getDeclaredName decl) decl bs
   in foldM addBinding Map.empty binds
 
-checkReturns :: Declaration -> Result ()
+checkReturns :: DeclarationT -> Result ()
 checkReturns TypeDef{} =
   return ()
 checkReturns Let{} =
@@ -205,14 +216,14 @@ checkReturns (Function _ name _ _ stmt) = do
   _ <- checkStmtsReturn name Never [stmt]
   return ()
 
-checkDupVars :: Declaration -> Result ()
+checkDupVars :: DeclarationT -> Result ()
 checkDupVars decl = case decl of
   TypeDef{}          -> return ()
   Let _ _ _ e        -> checkDupVarsExpr e
   Function _ _ _ _ s -> checkDupVarsStmt s
 
 
-checkDupVarsStmt :: S.Statement -> Result ()
+checkDupVarsStmt :: StatementT -> Result ()
 checkDupVarsStmt stmt = case stmt of
   S.Return _ me      -> forM_ me checkDupVarsExpr
   S.Let _ _ _ e      -> checkDupVarsExpr e
@@ -232,7 +243,7 @@ checkDupVarsStmt stmt = case stmt of
   S.Pass _           -> return ()
 
 
-checkDupVarsBlock :: [S.Statement] -> Set String -> Result ()
+checkDupVarsBlock :: [StatementT] -> Set String -> Result ()
 checkDupVarsBlock [] _ = return ()
 checkDupVarsBlock (s:ss) declared = do
   checkDupVarsStmt s
@@ -244,23 +255,23 @@ checkDupVarsBlock (s:ss) declared = do
     _ ->
       return ()
 
-checkDupVarsCase :: S.MatchCase -> Result ()
+checkDupVarsCase :: MatchCaseT -> Result ()
 checkDupVarsCase (S.MatchCase me st) = do
   checkDupVarsME me
   checkDupVarsStmt st
 
-checkDupVarsME :: S.MatchExpression -> Result ()
+checkDupVarsME :: MatchExpressionT -> Result ()
 checkDupVarsME me =
   checkDuplicateBindings (gatherMEBindings me) Set.empty
 
-gatherMEBindings :: S.MatchExpression -> [(String, S.MatchExpression)]
+gatherMEBindings :: MatchExpressionT -> [(String, MatchExpressionT)]
 gatherMEBindings me = case me of
   S.MatchAnything _        -> []
   S.MatchVariable _ s      -> [(s, me)]
   S.MatchStructure _ _ mes ->
     concatMap gatherMEBindings mes
 
-checkDuplicateBindings :: (Annotated ast) => [(String, ast)] -> Set String -> Result ()
+checkDuplicateBindings :: (Annotated ast) => [(String, ast Annotation)] -> Set String -> Result ()
 checkDuplicateBindings []                  _        =
   return ()
 checkDuplicateBindings ((name, node):rest) declared =
@@ -270,11 +281,11 @@ checkDuplicateBindings ((name, node):rest) declared =
 
 
 -- Update this once closures exist
-checkDupVarsExpr :: E.Expression -> Result ()
+checkDupVarsExpr :: ExpressionT -> Result ()
 checkDupVarsExpr _ = return ()
 
 
-checkStmtsReturn :: String -> DoesReturn -> [S.Statement] -> Result DoesReturn
+checkStmtsReturn :: String -> DoesReturn -> [StatementT] -> Result DoesReturn
 checkStmtsReturn fname prevReturns stmts =
   case prevReturns of
    Always -> case stmts of
@@ -313,7 +324,7 @@ data DoesReturn
   | Always
   deriving (Eq, Show)
 
-isTypeDecl :: Declaration -> Bool
+isTypeDecl :: DeclarationT -> Bool
 isTypeDecl TypeDef{} = True
 isTypeDecl _         = False
 
@@ -323,6 +334,6 @@ isTypeDecl _         = False
 duplicateName :: String -> Result a
 duplicateName name = Left $ DuplicateBinding name
 
-withLocations :: (Annotated a) => [a] -> Result b -> Result b
+withLocations :: (Annotated a) => [a Annotation] -> Result b -> Result b
 withLocations code =
   mapLeft (WithLocations (mapMaybe getLocation code))
