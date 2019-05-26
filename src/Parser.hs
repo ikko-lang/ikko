@@ -237,6 +237,10 @@ assignFields lefts = do
 
 blockStatement :: Parser Statement
 blockStatement =
+  indented >> blockStatement'
+
+blockStatement' :: Parser Statement
+blockStatement' =
   fmap (S.Block []) (block statementParser)
 
 statementSep :: Parser ()

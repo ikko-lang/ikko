@@ -221,7 +221,7 @@ testParsingBlock =
       expected = sBlock [ sLet "a1" (eVal $ boolVal True)
                          , sReturn (Just $ eVar "a1")
                          ]
-  in expectParsesA blockStatement text expected
+  in expectParsesA blockStatement' text expected
 
 testParsingIf :: Test
 testParsingIf =
