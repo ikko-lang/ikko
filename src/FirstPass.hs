@@ -18,7 +18,7 @@ import AST.Declaration
 import qualified AST.Declaration as D
 import qualified AST.Expression as E
 import qualified AST.Statement as S
-import AST.Type ( TypeDecl, TypeDef, defName, defGenerics, predType )
+import AST.Type ( defName, defGenerics, predType )
 import qualified AST.Type as T
 import Errors
   ( Error(..)
@@ -51,7 +51,7 @@ data Constructor =
   , ctorType :: Scheme
   }
   deriving (Eq, Show)
-
+--
 
 valueType :: Constructor -> Scheme
 valueType ctor =
@@ -122,8 +122,8 @@ checkGenDefined def decl = case decl of
     mapM_ (checkGenDefined def . snd) tdecls
   T.Enum _ options              ->
     mapM_ (mapM_ (checkGenDefined def . snd) . snd) options
-  T.Predicated _ preds t        ->
-    error "TODO"
+  T.Predicated{}                ->
+    error "Compiler error: Top level declarations cannot have predicates"
 
 checkGenTypeDefined :: TypeDefT -> T.Type -> Result ()
 checkGenTypeDefined def typ =
@@ -211,6 +211,9 @@ makeConstructors ((t,d):ts) constrs = do
           sch = Scheme nGens (TFunc [] typ)
           ctor = Constructor { ctorFields=[], ctorType=sch }
       in addEnumOptions nGens generalized sub typ options (Map.insert name ctor constrs)
+
+    T.Predicated{}       ->
+      error "compiler error: should not see a predicated type here"
   makeConstructors ts constrs'
 
 mustBeUnique :: String -> Map String b -> Result ()
@@ -246,7 +249,7 @@ convertDecl sub decl = case decl of
   T.Generic  _ tname gens -> do
     genTypes <- mapM (convertDecl sub) gens
     return $ TCon tname genTypes
-  T.Function _ argTs retT preds -> do
+  T.Function _ argTs retT _ -> do
     argTypes <- mapM (convertDecl sub) argTs
     retType <- convertDecl sub retT
     -- TODO: Handle predicates
@@ -254,6 +257,8 @@ convertDecl sub decl = case decl of
   T.Struct{}              ->
     withLocations [decl] $ Left InvalidAnonStructure
   T.Enum{}                ->
+    withLocations [decl] $ Left InvalidAnonStructure
+  T.Predicated{}          ->
     withLocations [decl] $ Left InvalidAnonStructure
 
 -- select and deduplicate function and let bindings
