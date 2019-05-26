@@ -12,7 +12,9 @@ import Data.Maybe (mapMaybe, fromMaybe)
 import AST.Annotation (Annotated, Annotation, getLocation)
 import AST.Declaration
   ( Declaration(..)
-  , getDeclaredName )
+  , getDeclaredName
+  , imName
+  , imBody )
 import qualified AST.Declaration as D
 import qualified AST.Expression as E
 import qualified AST.Statement as S
@@ -26,6 +28,7 @@ import Util.Functions
 
 
 type DeclarationT     = D.Declaration     Annotation
+type InstanceMethodT  = D.InstanceMethod  Annotation
 type ExpressionT      = E.Expression      Annotation
 type FileT            = D.File            Annotation
 type MatchCaseT       = S.MatchCase       Annotation
@@ -271,6 +274,13 @@ checkReturns (Function _ name _ _ stmt) = do
   return ()
 checkReturns TraitDecl{} =
   return ()
+checkReturns is@InstanceDecl{} =
+  mapM_ checkMethodReturns (idMethods is)
+
+checkMethodReturns :: InstanceMethodT -> Result ()
+checkMethodReturns im = do
+  _ <- checkStmtsReturn (imName im) Never [imBody im]
+  return ()
 
 checkDupVars :: DeclarationT -> Result ()
 checkDupVars decl = case decl of
@@ -278,6 +288,8 @@ checkDupVars decl = case decl of
   Let _ _ _ e        -> checkDupVarsExpr e
   Function _ _ _ _ s -> checkDupVarsStmt s
   TraitDecl{}        -> return ()
+  InstanceDecl{}     ->
+    mapM_ (checkDupVarsStmt . imBody) (idMethods decl) 
 
 
 checkDupVarsStmt :: StatementT -> Result ()

@@ -21,6 +21,13 @@ data Declaration a
     , tdExtends :: [WithAnnotation String a] -- Parent trait names
     , tdMethods :: [TraitMethod a]
     }
+  | InstanceDecl
+    { idAnn :: a
+    , idName :: WithAnnotation String a -- Name of trait implemented, e.g. `Show`
+    , idType :: TypeDecl a -- Type the trait is implemented for, e.g. `[a]`
+    , idPredicates :: [Predicate a] -- e.g. Show a
+    , idMethods :: [InstanceMethod a]
+    }
   deriving (Eq, Show, Functor, Foldable, Traversable)
 
 
@@ -38,20 +45,6 @@ data TraitMethod a
 
 instance Annotated TraitMethod where
   --  use all default methods
-
-
-data InstanceDecl a
-  = InstanceDecl
-    { idAnn :: a
-    , idType :: Predicate a -- e.g. `Show [a]`
-    , idPredicates :: [Predicate a] -- e.g. `(Show a) =>`
-    , idMethods :: [InstanceMethod a]
-    }
-    deriving (Eq, Show, Functor, Foldable, Traversable)
-
-instance Annotated InstanceDecl where
-  -- use all default methods
-
 
 data InstanceMethod a
   = InstanceMethod
@@ -71,3 +64,4 @@ getDeclaredName (Let      _ name _ _)   = name
 getDeclaredName (Function _ name _ _ _) = name
 getDeclaredName (TypeDef  _ tdef _)     = defName tdef
 getDeclaredName td@TraitDecl{}          = unannotate $ tdName td
+getDeclaredName is@InstanceDecl{}       = unannotate $ idName is

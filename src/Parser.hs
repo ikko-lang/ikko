@@ -29,27 +29,49 @@ import qualified AST.Statement as S
 import qualified AST.Type as T
 import Region (Position(..), Region(..))
 
-type File            = D.File Annotation
-type Declaration     = D.Declaration Annotation
-type TraitMethod     = D.TraitMethod Annotation
-type Statement       = S.Statement Annotation
-type MatchCase       = S.MatchCase Annotation
+type File            = D.File            Annotation
+type Declaration     = D.Declaration     Annotation
+type TraitMethod     = D.TraitMethod     Annotation
+type InstanceMethod  = D.InstanceMethod  Annotation
+type Statement       = S.Statement       Annotation
+type MatchCase       = S.MatchCase       Annotation
 type MatchExpression = S.MatchExpression Annotation
-type Expression      = E.Expression Annotation
-type Value           = E.Value Annotation
+type Expression      = E.Expression      Annotation
+type Value           = E.Value           Annotation
 type Type            = T.Type
-type TypeDecl        = T.TypeDecl Annotation
-type TypeDef         = T.TypeDef Annotation
-type EnumOption      = T.EnumOption Annotation
-type Predicate       = T.Predicate Annotation
+type TypeDecl        = T.TypeDecl        Annotation
+type TypeDef         = T.TypeDef         Annotation
+type EnumOption      = T.EnumOption      Annotation
+type Predicate       = T.Predicate       Annotation
 
 type Parser a = IndentParser String () a
 
 keywords :: [String]
 keywords =
-  [ "package", "import", "let", "fn", "type", "struct", "enum",
-    "if", "else", "while", "for", "match", "with",
-    "where"
+  [ "break"
+  , "const"
+  , "continue"
+  , "else"
+  , "enum"
+  , "fn"
+  , "for"
+  , "if"
+  , "impl"
+  , "import"
+  , "in"
+  , "let"
+  , "match"
+  , "mut"
+  , "package"
+  , "pass"
+  , "pub"
+  , "self"
+  , "struct"
+  , "type"
+  , "where"
+  , "while"
+  , "with"
+  , "yield"
   ]
 
 parseFile :: String -> String -> Either String File
@@ -75,7 +97,8 @@ declarationParsers =
   [ letDeclaration
   , funcDeclaration
   , typeDeclaration
-  , traitDeclaration ]
+  , traitDeclaration
+  , instanceDeclaration ]
 
 letDeclaration :: Parser Declaration
 letDeclaration = do
@@ -205,9 +228,9 @@ traitDeclaration = do
     , D.tdExtends = unwrapOr mextends []
     , D.tdMethods = methods }
 
-    
+
 traitMethod :: Parser TraitMethod
-traitMethod = withPos $ do
+traitMethod = withPos $ addLocation $ do
   _ <- string "fn"
   _ <- any1LinearWhitespace
   name <- valueName
@@ -247,6 +270,58 @@ argType = try namedArgType <|> unnamedArgType
           _ <- valueName
           _ <- any1Whitespace
           simpleTypeDefParser
+
+
+instanceDeclaration :: Parser Declaration
+instanceDeclaration = do
+  _ <- string "impl"
+  _ <- any1LinearWhitespace
+  traitName <- withAnnotation upperTypeName
+  _ <- any1LinearWhitespace
+  implType <- simpleTypeDefParser
+
+  mpredicates <- optionMaybe $ try $ do
+    _ <- any1LinearWhitespace
+    _ <- string "where"
+    _ <- any1LinearWhitespace
+    sepBy predicateParser commaSep
+
+  _ <- char ':'
+  _ <- statementSep
+
+  methods <- option [] (indented >> block instanceMethod)
+  return $ D.InstanceDecl
+    { D.idAnn        = []
+    , D.idName       = traitName
+    , D.idType       = implType
+    , D.idPredicates = unwrapOr mpredicates []
+    , D.idMethods    = methods }
+
+
+instanceMethod :: Parser InstanceMethod
+instanceMethod = withPos $ addLocation $ do
+  _ <- string "fn"
+  _ <- any1LinearWhitespace
+
+  name <- valueName
+
+  _ <- char '('
+  _ <- anyLinearWhitespace
+  argNames <- sepBy valueName commaSep
+  _ <- anyLinearWhitespace
+  _ <- char ')'
+
+  _ <- char ':'
+  _ <- statementSep
+
+  body <- blockStatement
+
+  return $ D.InstanceMethod
+    { D.imAnn  = []
+    , D.imName = name
+    , D.imArgs = argNames
+    , D.imBody = body }
+
 
 type ArgDecls = [(String, Maybe TypeDecl)]
 

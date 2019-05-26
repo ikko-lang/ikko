@@ -127,6 +127,7 @@ isExplicit decl = case decl of
   D.Function _ _ mt _ _ -> isJust mt
   D.TypeDef{}           -> error "shouldn't see a typedef here"
   D.TraitDecl{}         -> error "shouldn't see a trait declaration here"
+  D.InstanceDecl{}      -> True
 
 -- TODO: extend this into prelude (plus imported names)
 startingDependencies :: Set String
@@ -384,6 +385,10 @@ getExplicitType (name, decl) = case decl of
   D.TypeDef{} ->
     error "shouldn't see a typedef here"
 
+  D.InstanceDecl{} ->
+    -- TODO!
+    return (name, asScheme tUnit)
+
 
 genericMap :: [T.Type] -> InferM (Map String Type)
 genericMap tnames = do
@@ -501,6 +506,10 @@ inferDecl env decl = case decl of
 
   D.TypeDef{} ->
     inferErr $ CompilerBug "TypeDefs are not bindings"
+
+  D.InstanceDecl{} ->
+    -- TODO: check the type of each method
+    return $ addType tUnit decl
 
 inferStmt :: Environment -> StatementT ->
              InferM (StatementT, DoesReturn)
