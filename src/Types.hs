@@ -18,6 +18,22 @@ data Type
   | TGen Int
   deriving (Eq, Ord, Show)
 
+-- `(Show a)` becomes `Predicate "Show" (TVar "a")`
+data Predicate
+  = Predicate String Type
+  deriving (Eq, Ord, Show)
+
+data Qualified t
+  = Qualified [Predicate] t
+  deriving (Eq, Ord, Show)
+
+-- e.g. (Show a) => a -> a for a function's type
+type QualType = Qualified Type
+
+-- e.g. (Show a) => Show [a] for a class implementation
+type QualPred = Qualified Predicate
+
+
 tcon0 :: String -> Type
 tcon0 name = TCon name []
 
@@ -79,10 +95,27 @@ instance Types Type where
   freeTypeVars (TGen _) =
     Set.empty
 
+instance Types Predicate where
+  apply sub (Predicate i t) =
+    Predicate i (apply sub t)
+
+  freeTypeVars (Predicate _ t) =
+    freeTypeVars t
+
+
+instance Types t => Types (Qualified t) where
+  apply sub (Qualified ps t) =
+    Qualified (apply sub ps) (apply sub t)
+
+  freeTypeVars (Qualified ps t) =
+    Set.union (freeTypeVars ps) (freeTypeVars t)
 
 instance (Types a) => Types [a] where
-  apply sub = map (apply sub)
-  freeTypeVars ts = foldl Set.union Set.empty (map freeTypeVars ts)
+  apply sub =
+    map (apply sub)
+
+  freeTypeVars ts =
+    foldl Set.union Set.empty (map freeTypeVars ts)
 
 
 -- TODO: Add kinds to Scheme
