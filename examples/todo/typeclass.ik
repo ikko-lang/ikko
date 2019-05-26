@@ -14,12 +14,12 @@ impl PrettyPrint [a] where PrettyPrint a:
 trait Logger extends PrettyPrint:
     fn log(Self, to t) where Writer t
 
-trait Counter a:
+trait Counter:
     fn getCount(String): Int
     fn alterCount(String, Int)
 
 // Classes can have superclasses
-trait MyClass a where Counter a, Logger a:
+trait MyClass extends Counter, Logger:
      fn logCount(String)
 
 // function that uses a typeclass

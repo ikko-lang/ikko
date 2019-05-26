@@ -10,8 +10,17 @@ import Data.Maybe (isNothing, fromMaybe)
 import Text.Parsec
 import Text.Parsec.Pos (sourceLine, sourceColumn, sourceName)
 import Text.Parsec.Indent
+  ( block
+  , checkIndent
+  , indented
+  , runIndentParserT
+  , withPos
+  , topLevel
+  , IndentParser
+  , IndentParserT
+  , IndentT )
 
-import AST.Annotation (Annotated, Annotation)
+import AST.Annotation (Annotated, Annotation, WithAnnotation(..))
 import qualified AST.Annotation as An
 import qualified AST.Declaration as D
 import AST.Expression (BinOp, UnaryOp)
@@ -22,6 +31,7 @@ import Region (Position(..), Region(..))
 
 type File            = D.File Annotation
 type Declaration     = D.Declaration Annotation
+type TraitMethod     = D.TraitMethod Annotation
 type Statement       = S.Statement Annotation
 type MatchCase       = S.MatchCase Annotation
 type MatchExpression = S.MatchExpression Annotation
@@ -38,7 +48,8 @@ type Parser a = IndentParser String () a
 keywords :: [String]
 keywords =
   [ "package", "import", "let", "fn", "type", "struct", "enum",
-    "if", "else", "while", "for", "match", "with"
+    "if", "else", "while", "for", "match", "with",
+    "where"
   ]
 
 parseFile :: String -> String -> Either String File
@@ -57,7 +68,14 @@ fileParser = do
 
 declarationParser :: Parser Declaration
 declarationParser =
-  withPos $ addLocation $ choice [letDeclaration, funcDeclaration, typeDeclaration]
+  withPos $ addLocation $ choice declarationParsers
+
+declarationParsers :: [Parser Declaration]
+declarationParsers =
+  [ letDeclaration
+  , funcDeclaration
+  , typeDeclaration
+  , traitDeclaration ]
 
 letDeclaration :: Parser Declaration
 letDeclaration = do
@@ -138,11 +156,11 @@ predicateParser :: Parser Predicate
 predicateParser = addLocation $ do
   cls <- upperTypeName
   _ <- any1LinearWhitespace
-  T.Predicate [] cls <$> typeDefParser
+  T.Predicate [] cls <$> simpleTypeDefParser
 
 typeDeclaration :: Parser Declaration
 typeDeclaration = do
-  _ <- string "type"
+  _ <- try $ string "type"
   _ <- any1LinearWhitespace
   declared <- simpleTypeDefParser
   tdef <- mustBeTDef declared
@@ -165,6 +183,70 @@ mustBeTypeName :: TypeDecl -> Parser Type
 mustBeTypeName decl = case decl of
   T.TypeName _ name -> return name
   _ -> fail "invalid generic parameter in type to declare"
+
+
+traitDeclaration :: Parser Declaration
+traitDeclaration = do
+  _ <- string "trait"
+  _ <- any1LinearWhitespace
+  traitName <- withAnnotation upperTypeName
+  mextends <- optionMaybe $ try $ do
+    _ <- any1LinearWhitespace
+    _ <- string "extends"
+    _ <- any1LinearWhitespace
+    sepBy (withAnnotation upperTypeName)
+          (char ',' *> any1LinearWhitespace)
+  _ <- char ':'
+  _ <- statementSep
+  methods <- option [] (indented >> block traitMethod)
+  return $ D.TraitDecl
+    { D.tdAnn     = []
+    , D.tdName    = traitName
+    , D.tdExtends = unwrapOr mextends []
+    , D.tdMethods = methods }
+
+    
+traitMethod :: Parser TraitMethod
+traitMethod = withPos $ do
+  _ <- string "fn"
+  _ <- any1LinearWhitespace
+  name <- valueName
+  argTypes <- funcArgTypes
+  retType <- optionMaybe $ try $ labeled "trait method return type" $ do
+    _ <- any1LinearWhitespace
+    simpleTypeDefParser
+  predicates <- optionMaybe $ try $ labeled "trait method predicates" $  do
+    _ <- any1LinearWhitespace
+    _ <- string "where"
+    _ <- any1LinearWhitespace
+    sepBy1 predicateParser commaSep
+  _ <- labeled "end of trait method" statementSep
+  let methodType = T.Function [] argTypes (unwrapOr retType tVoid) (unwrapOr predicates [])
+  return $ D.TraitMethod
+    { D.tmAnn  = []
+    , D.tmName = name
+    , D.tmType = methodType }
+
+tVoid :: TypeDecl
+tVoid = T.TypeName [] "()"
+
+funcArgTypes :: Parser [TypeDecl]
+funcArgTypes = do
+  _ <- char '('
+  _ <- anyLinearWhitespace
+  argTypes <- sepBy argType commaSep
+  _ <- anyLinearWhitespace
+  _ <- char ')'
+  return argTypes
+
+argType :: Parser TypeDecl
+argType = try namedArgType <|> unnamedArgType
+  where unnamedArgType =
+          simpleTypeDefParser
+        namedArgType = do
+          _ <- valueName
+          _ <- any1Whitespace
+          simpleTypeDefParser
 
 type ArgDecls = [(String, Maybe TypeDecl)]
 
@@ -680,7 +762,10 @@ typeName :: Parser String
 typeName = do
   first <- upper <|> letter
   rest <- many $ choice [letter, digit, underscore]
-  return $ first : rest
+  let result = first : rest
+  when (result `elem` keywords)
+    (fail $ "expected a type name, got a keyword " ++ result)
+  return result
 
 upperTypeName :: Parser String
 upperTypeName = do
@@ -788,6 +873,11 @@ applyLeft fn (Left  a) = Left (fn a)
 applyLeft _  (Right r) = Right r
 
 
+requireJust :: Maybe a -> Parser a
+requireJust (Just a) = return a
+requireJust Nothing  = fail "required a value"
+
+
 ---- Position utilities ----
 
 position :: Parser Position
@@ -809,3 +899,10 @@ addLocation inner = do
   result <- inner
   region <- getRegion start
   return $ An.addLocation region result
+
+withAnnotation :: Parser a -> Parser (WithAnnotation a Annotation)
+withAnnotation p =
+  addLocation $ WithAnnotation [] <$> p
+
+labeled :: String -> ParsecT s u m a -> ParsecT s u m a
+labeled = flip label

@@ -126,6 +126,7 @@ isExplicit decl = case decl of
   D.Let      _ _ mt _   -> isJust mt
   D.Function _ _ mt _ _ -> isJust mt
   D.TypeDef{}           -> error "shouldn't see a typedef here"
+  D.TraitDecl{}         -> error "shouldn't see a trait declaration here"
 
 -- TODO: extend this into prelude (plus imported names)
 startingDependencies :: Set String

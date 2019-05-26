@@ -269,12 +269,15 @@ checkReturns Let{} =
 checkReturns (Function _ name _ _ stmt) = do
   _ <- checkStmtsReturn name Never [stmt]
   return ()
+checkReturns TraitDecl{} =
+  return ()
 
 checkDupVars :: DeclarationT -> Result ()
 checkDupVars decl = case decl of
   TypeDef{}          -> return ()
   Let _ _ _ e        -> checkDupVarsExpr e
   Function _ _ _ _ s -> checkDupVarsStmt s
+  TraitDecl{}        -> return ()
 
 
 checkDupVarsStmt :: StatementT -> Result ()
@@ -379,8 +382,9 @@ data DoesReturn
   deriving (Eq, Show)
 
 isTypeDecl :: DeclarationT -> Bool
-isTypeDecl TypeDef{} = True
-isTypeDecl _         = False
+isTypeDecl TypeDef{}   = True
+isTypeDecl TraitDecl{} = True
+isTypeDecl _           = False
 
 -- TODO: add the ability to combine multiple files into a module,
 --   but check imports on a per-file basis
