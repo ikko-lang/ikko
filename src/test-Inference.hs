@@ -15,6 +15,7 @@ import FirstPass
 import Types
   ( Substitution
   , Type(..)
+  , Kind(..)
   , Scheme(..)
   , asScheme
   , composeSubs
@@ -104,42 +105,42 @@ tests =
 -- which the other tests rely on to tell if the thing they test is working.
 comparingTypes :: Assertion
 comparingTypes = do
-  let varA = TVar "a"
-  let varB = TVar "b"
-  let varX = TVar "x"
-  let varY = TVar "y"
+  let varA = TVar "a" Star
+  let varB = TVar "b" Star
+  let varX = TVar "x" Star
+  let varY = TVar "y" Star
   assertTrue $ alphaSubstitues varX varX
   assertTrue $ alphaSubstitues varX varY
   assertTrue $ alphaSubstitues tInt tInt
   -- allows repeated vars
-  assertTrue $ alphaSubstitues (TFunc [varX, varX] varY) (TFunc [varA, varA] varY)
-  assertTrue $ alphaSubstitues (TFunc [varX, varX] varY) (TFunc [varA, varA] varB)
-  assertTrue $ alphaSubstitues (TCon "L" [varX]) (TCon "L" [varB])
+  assertTrue $ alphaSubstitues (TFunc [varX, varX] varY Star) (TFunc [varA, varA] varY Star)
+  assertTrue $ alphaSubstitues (TFunc [varX, varX] varY Star) (TFunc [varA, varA] varB Star)
+  assertTrue $ alphaSubstitues (TCon "L" [varX] Star) (TCon "L" [varB] Star)
 
   -- doesn't allow making types more or less general
-  assertFalse $ alphaSubstitues (TFunc [varX, varY] varY) (TFunc [varA, varA] varA)
-  assertFalse $ alphaSubstitues (TFunc [varX, varX] varX) (TFunc [varA, varB] varB)
+  assertFalse $ alphaSubstitues (TFunc [varX, varY] varY Star) (TFunc [varA, varA] varA Star)
+  assertFalse $ alphaSubstitues (TFunc [varX, varX] varX Star) (TFunc [varA, varB] varB Star)
 
-  assertFalse $ alphaSubstitues (TFunc [varX] varY) (TFunc [varA, varA] varY)
-  assertFalse $ alphaSubstitues (TCon "L" [varX]) (TCon "L" [varB, varB])
+  assertFalse $ alphaSubstitues (TFunc [varX] varY Star) (TFunc [varA, varA] varY Star)
+  assertFalse $ alphaSubstitues (TCon "L" [varX] Star) (TCon "L" [varB, varB] Star)
   assertFalse $ alphaSubstitues (TGen 1) (TGen 1)
   assertFalse $ alphaSubstitues tInt tBool
-  assertFalse $ alphaSubstitues (TVar "x") tInt
-  assertFalse $ alphaSubstitues tInt (TVar "x")
+  assertFalse $ alphaSubstitues (TVar "x" Star) tInt
+  assertFalse $ alphaSubstitues tInt (TVar "x" Star)
 
 composingSubs :: Assertion
 composingSubs = do
   -- Try the trivial cases
   assertEq emptySubstitution (composeSubs emptySubstitution emptySubstitution)
 
-  let subAB = makeSub [(TVar "a", TVar "b")]
+  let subAB = makeSub [(TVar "a" Star, TVar "b" Star)]
   assertEq subAB (composeSubs emptySubstitution subAB)
   assertEq subAB (composeSubs subAB emptySubstitution)
   assertEq subAB (composeSubs subAB subAB)
 
   -- Test updating elements of the other substitution
-  let subBC = makeSub [(TVar "b", TVar "c")]
-  let subABtoC = makeSub [(TVar "a", TVar "c"), (TVar "b", TVar "c")]
+  let subBC = makeSub [(TVar "b" Star, TVar "c" Star)]
+  let subABtoC = makeSub [(TVar "a" Star, TVar "c" Star), (TVar "b" Star, TVar "c" Star)]
   assertEq subABtoC $ composeSubs subAB subBC
 
 basicUnification :: Assertion
@@ -150,43 +151,46 @@ basicUnification = do
   let result2 = mgu tUnit tInt
   assertLeft result2
 
-  let result3 = mgu (TVar "a") tInt
-  assertEq (Right $ makeSub [(TVar "a", tInt)]) result3
+  let result3 = mgu (TVar "a" Star) tInt
+  assertEq (Right $ makeSub [(TVar "a" Star, tInt)]) result3
 
-  let result4 = mgu (TVar "a") (TVar "a")
+  let result4 = mgu (TVar "a" Star) (TVar "a" Star)
   assertEq (Right emptySubstitution) result4
 
-  let result5 = mgu tInt (TVar "x")
-  assertEq (Right $ makeSub [(TVar "x", tInt)]) result5
+  let result5 = mgu tInt (TVar "x" Star)
+  assertEq (Right $ makeSub [(TVar "x" Star, tInt)]) result5
 
-  let result6 = mgu (TVar "a") (TVar "b")
-  assertEq (Right $ makeSub [(TVar "a", TVar "b")]) result6
+  let result6 = mgu (TVar "a" Star) (TVar "b" Star)
+  assertEq (Right $ makeSub [(TVar "a" Star, TVar "b" Star)]) result6
 
-  let result7 = mgu (TVar "a") (TFunc [TVar "a"] tInt)
+  let result7 = mgu (TVar "a" Star) (TFunc [TVar "a" Star] tInt Star)
   assertEq (Left $ InfiniteType "a") result7
+
+  let result8 = mgu (TVar "a" Star) (TVar "a" (KFun Star Star))
+  assertEq (Left $ KindError "a" Star (KFun Star Star)) result8
 
 
 recursiveUnification :: Assertion
 recursiveUnification = do
-  let result1 = mgu (TFunc [TVar "a"] (TVar "a")) (TFunc [TVar "b"] tInt)
-  let expected1 = makeSub [(TVar "a", tInt), (TVar "b", tInt)]
+  let result1 = mgu (TFunc [TVar "a" Star] (TVar "a" Star) Star) (TFunc [TVar "b" Star] tInt Star)
+  let expected1 = makeSub [(TVar "a" Star, tInt), (TVar "b"  Star, tInt)]
   assertEq (Right expected1) result1
 
-  let result2 = mgu (TFunc [TVar "a"] (TVar "b")) (TFunc [TVar "b"] (TVar "a"))
-  let expected2 = makeSub [(TVar "a", TVar "b")]
+  let result2 = mgu (TFunc [TVar "a" Star] (TVar "b" Star) Star) (TFunc [TVar "b" Star] (TVar "a" Star) Star)
+  let expected2 = makeSub [(TVar "a" Star, TVar "b" Star)]
   assertEq (Right expected2) result2
 
-  let result3 = mgu (TFunc [tInt] (TVar "a")) (TFunc [TVar "a"] tUnit)
+  let result3 = mgu (TFunc [tInt] (TVar "a" Star) Star) (TFunc [TVar "a" Star] tUnit Star)
   assertLeft result3
 
 
 instantiation :: Assertion
 instantiation = do
-  assertInstantiates (Scheme 0 tInt) tInt
-  assertInstantiates (Scheme 1 tInt) tInt
-  assertInstantiates (Scheme 1 $ TGen 1) (TVar "a")
-  let sch2 = Scheme 2 (TFunc [TGen 1, TGen 2] (TGen 2))
-  let t2 = TFunc [TVar "a", TVar "b"] (TVar "b")
+  assertInstantiates (Scheme [] tInt) tInt
+  assertInstantiates (Scheme [Star] tInt) tInt
+  assertInstantiates (Scheme [Star] $ TGen 1) (TVar "a" Star)
+  let sch2 = Scheme [Star, Star] (TFunc [TGen 1, TGen 2] (TGen 2) Star)
+  let t2 = TFunc [TVar "a" Star, TVar "b" Star] (TVar "b" Star) Star
   assertInstantiates sch2 t2
 
 
@@ -226,44 +230,44 @@ functionInference = do
 
   -- f() { }
   let func0 = func "f" [] []
-  let type0 = TFunc [] tUnit
+  let type0 = TFunc [] tUnit Star
   assertDeclTypes type0 func0
 
   -- f() { return 1; }
   let func1 = func "f" [] [returnJust $ intVal 1]
-  let type1 = TFunc [] tInt
+  let type1 = TFunc [] tInt Star
   assertDeclTypes type1 func1
 
   -- f(x) { return 1; }
   let func2 = func "f" ["x"] [returnJust $ intVal 1]
-  let type2 = TFunc [TVar "a"] tInt
+  let type2 = TFunc [TVar "a" Star] tInt Star
   assertDeclTypes type2 func2
 
   -- f(x) { return x; }
   let func3 = func "f" ["x"] [returnJust varX]
-  let type3 = TFunc [TVar "a"] (TVar "a")
+  let type3 = TFunc [TVar "a" Star] (TVar "a" Star) Star
   assertDeclTypes type3 func3
 
   -- f(x) { return x + 1; }
   let func4 = func "f" ["x"] [returnJust $ E.Binary [] E.Plus varX (intVal 1)]
-  let type4 = TFunc [tInt] tInt
+  let type4 = TFunc [tInt] tInt Star
   assertDeclTypes type4 func4
 
   -- f(x) { return x > 123; }
   let func5 = func "f" ["x"] [returnJust $ E.Binary [] E.Less varX (intVal 123)]
-  let type5 = TFunc [tInt] tBool
+  let type5 = TFunc [tInt] tBool Star
   assertDeclTypes type5 func5
 
   -- f(x) { return x && True; }
   let funcBool = func "f" ["x"] [returnJust $ E.Binary [] E.BoolAnd varX (boolVal True)]
-  let typeBool = TFunc [tBool] tBool
+  let typeBool = TFunc [tBool] tBool Star
   assertDeclTypes typeBool funcBool
 
   -- f(x) { let y = x; return y; }
   let letStmt = S.Let [] "y" Nothing (E.Var [] "x")
   let returnStmt = returnJust (E.Var [] "y")
   let funcLet = func "f" ["x"] [letStmt, returnStmt]
-  let idType = TFunc [TVar "a"] (TVar "a")
+  let idType = TFunc [TVar "a" Star] (TVar "a" Star) Star
   assertDeclTypes idType funcLet
 
   -- TODO: Test assignment
@@ -279,7 +283,7 @@ whileLoop = do
   let while = S.While [] aLessY [whileBody]
   let returnA = returnJust $ E.Var [] "a"
   let func6 = func "f" ["y"] [aTo1, while, returnA]
-  let type6 = TFunc [tInt] tInt
+  let type6 = TFunc [tInt] tInt Star
   assertDeclTypes type6 func6
 
 
@@ -291,7 +295,7 @@ ifElseReturn = do
   let returnY = returnJust $ E.Var [] "y"
   let ifStmt = S.If [] test [returnX] (Just returnY)
   let func7 = func "f" ["x", "y"] [ifStmt]
-  let type7 = TFunc [tInt, tInt] tInt
+  let type7 = TFunc [tInt, tInt] tInt Star
   assertDeclTypes type7 func7
 
 
@@ -303,7 +307,7 @@ ifThenReturn = do
   let ifStmt = S.If [] test [returnX] Nothing
   let returnY = returnJust $ E.Var [] "y"
   let func8 = func "f" ["x", "y"] [ifStmt, returnY]
-  let type8 = TFunc [tInt, tInt] tInt
+  let type8 = TFunc [tInt, tInt] tInt Star
   assertDeclTypes type8 func8
 
 
@@ -314,7 +318,7 @@ returnABC = do
   let returnC = returnJust $ E.Var [] "c"
   let ifStmt = S.If [] (E.Var [] "a") [returnB] (Just returnC)
   let func9 = func "f" ["a", "b", "c"] [ifStmt]
-  let type9 = TFunc [tBool, TVar "a", TVar "a"] (TVar "a")
+  let type9 = TFunc [tBool, TVar "a" Star, TVar "a" Star] (TVar "a" Star) Star
   assertDeclTypes type9 func9
 
 
@@ -325,7 +329,7 @@ returnABC2 = do
   let returnC = returnJust $ E.Var [] "c"
   let ifStmt = S.If [] (E.Var [] "a") [returnB] Nothing
   let func9 = func "f" ["a", "b", "c"] [ifStmt, returnC]
-  let type9 = TFunc [tBool, TVar "a", TVar "a"] (TVar "a")
+  let type9 = TFunc [tBool, TVar "a" Star, TVar "a" Star] (TVar "a" Star) Star
   assertDeclTypes type9 func9
 
 
@@ -335,7 +339,7 @@ returnAB = do
   let returnB = returnJust $ E.Var [] "b"
   let ifStmt = S.If [] (E.Var [] "a") [returnB] (Just returnB)
   let funcAB = func "f" ["a", "b"] [ifStmt]
-  let typeAB = TFunc [tBool, TVar "a"] (TVar "a")
+  let typeAB = TFunc [tBool, TVar "a" Star] (TVar "a" Star) Star
   assertDeclTypes typeAB funcAB
 
 returnABEnd :: Assertion
@@ -344,7 +348,7 @@ returnABEnd = do
   let returnB = returnJust $ E.Var [] "b"
   let ifStmt = S.If [] (E.Var [] "a") [returnB] Nothing
   let funcAB = func "f" ["a", "b"] [ifStmt, returnB]
-  let typeAB = TFunc [tBool, TVar "a"] (TVar "a")
+  let typeAB = TFunc [tBool, TVar "a" Star] (TVar "a" Star) Star
   assertDeclTypes typeAB funcAB
 
 
@@ -365,9 +369,9 @@ firstClassFunction = do
   let call = E.Call [] varX [varY, varY]
   let f = func "f" ["x", "y"] [returnJust call]
   -- (a -> a -> b)
-  let xType = TFunc [TVar "a", TVar "a"] (TVar "b")
+  let xType = TFunc [TVar "a" Star, TVar "a" Star] (TVar "b" Star) Star
   -- (a -> a -> b) -> a -> b
-  let t = TFunc [xType, TVar "a"] (TVar "b")
+  let t = TFunc [xType, TVar "a" Star] (TVar "b" Star) Star
   assertDeclTypes t f
 
 
@@ -441,14 +445,14 @@ simpleModule = do
   -- f(n) { return n + 1; }
   let nPlus1 = func "f" ["n"] [returnJust $ E.Binary [] E.Plus varN (intVal 1)]
   let result1 = inferModule $ makeModule [("f", nPlus1)]
-  let intFn = Scheme 0 $ TFunc [tInt] tInt
+  let intFn = Scheme [] $ TFunc [tInt] tInt Star
   assertModuleTypes "f" intFn result1
 
   -- Test basic let-polymorphism
   -- id(x) { return x; }
   let identity = func "id" ["x"] [returnJust varX]
   let result2 = inferModule $ makeModule [("id", identity)]
-  let idType = Scheme 1 $ TFunc [TGen 1] (TGen 1)
+  let idType = Scheme [Star] $ TFunc [TGen 1] (TGen 1) Star
   assertModuleTypes "id" idType result2
 
   -- Test usage of let-polymorphism
@@ -458,7 +462,7 @@ simpleModule = do
   let idExpr = E.Call [] varID [E.Binary [] E.Greater varN id3]
   let fN = func "f" ["n"] [returnJust idExpr]
   let result3 = inferModule $ makeModule [("f", fN), ("id", identity)]
-  let fNType = Scheme 0 $ TFunc [tInt] tBool
+  let fNType = Scheme [] $ TFunc [tInt] tBool Star
   assertModuleTypes "f" fNType result3
   assertModuleTypes "id" idType result3
 
@@ -471,8 +475,8 @@ simpleModule = do
   let idOfX = E.Call [] varID [varX]
   let fCallsID = func "f" ["x"] [returnJust $ E.Binary [] E.Greater idOfX (intVal 2)]
   let result4 = inferModule $ makeModule [("f", fCallsID), ("id", identityCallingF)]
-  let lessGeneralIDType = Scheme 0 $ TFunc [tInt] tInt
-  let fCallsIDType = Scheme 0 $ TFunc [tInt] tBool
+  let lessGeneralIDType = Scheme [] $ TFunc [tInt] tInt Star
+  let fCallsIDType = Scheme [] $ TFunc [tInt] tBool Star
   assertModuleTypes "f" fCallsIDType result4
   assertModuleTypes "id" lessGeneralIDType result4
 
@@ -485,7 +489,7 @@ explicitLetBinding = do
   let letStmt = S.Let [] "y" typeAnnotation (E.Var [] "x")
   let returnStmt = returnJust (E.Var [] "y")
   let funcLet = func "f" ["x"] [letStmt, returnStmt]
-  let fnType = TFunc [tInt] tInt
+  let fnType = TFunc [tInt] tInt Star
   assertDeclTypes fnType funcLet
 
 
@@ -496,7 +500,7 @@ explicitFunctionBinding = do
   let typeAnnotation = Just ([], T.Function [] [intName] intName)
   let returnStmt = returnJust (E.Var [] "x")
   let funcInts = D.Function [] "f" typeAnnotation ["x"] returnStmt
-  let fnType = asScheme $ TFunc [tInt] tInt
+  let fnType = asScheme $ TFunc [tInt] tInt Star
   let result = inferModule $ makeModule  [("f", funcInts)]
   assertModuleTypes "f" fnType result
 
@@ -598,24 +602,24 @@ assertNoGenerics t =
 
 containsGenerics :: Type -> Bool
 containsGenerics t = case t of
-  TCon _ ts  -> any containsGenerics ts
-  TFunc as t -> any containsGenerics as || containsGenerics t
-  TVar _     -> False
-  TGen _     -> True
+  TCon _ ts _  -> any containsGenerics ts
+  TFunc as t _ -> any containsGenerics as || containsGenerics t
+  TVar _ _     -> False
+  TGen _       -> True
 
 
 -- expected, result
 assertSchemeUnifies :: Scheme -> Scheme -> Assertion
-assertSchemeUnifies s1@(Scheme n1 _) s2@(Scheme n2 _) = do
+assertSchemeUnifies s1@(Scheme k1 _) s2@(Scheme k2 _) = do
   assertMatches (testInstantiate s1) (testInstantiate s2)
-  assertEq n1 n2
+  assertEq k1 k2
 
 
 -- testInstantiate instantiates without the InferM monad available
 testInstantiate :: Scheme -> Type
-testInstantiate (Scheme n t) =
-  let range = [1..n]
-      newVars = [TVar $ "-t" ++ show i | i <- range]
+testInstantiate (Scheme kinds t) =
+  let range = [1..length kinds]
+      newVars = zipWith TVar ["-t" ++ show i | i <- range] kinds
       genVars = map TGen range
       sub = Map.fromList $ zip genVars newVars
   in apply sub t

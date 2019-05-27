@@ -20,7 +20,7 @@ import qualified AST.Type as T
 import Errors
   ( Error(..)
   , Result )
-import Types (Scheme(..), Type(..), Substitution, makeSub)
+import Types (Kind(..), Scheme(..), Type(..), Substitution, makeSub, kindN)
 import Util.Functions
 
 
@@ -49,10 +49,12 @@ data Constructor =
   deriving (Eq, Show)
 
 
+-- valueType returns a scheme containing the type produced by the constructor
+-- function
 valueType :: Constructor -> Scheme
 valueType ctor =
-  let (Scheme n (TFunc _ ret)) = ctorType ctor
-  in Scheme n ret
+  let (Scheme kinds (TFunc _ ret _)) = ctorType ctor
+  in Scheme kinds ret
 
 -- firstPass is the first thing run after parsing.
 -- It prepares data for type inference.
@@ -105,10 +107,10 @@ isBuiltIn t = t `elem` ["Int", "Float", "Bool", "Char", "String", "()"]
 
 getTypeNames :: Type -> [String]
 getTypeNames t = case t of
-  TCon name ts -> name : concatMap getTypeNames ts
-  TFunc at rt  -> concatMap getTypeNames at ++ getTypeNames rt
-  TVar _       -> []
-  TGen _       -> []
+  TCon name ts _ -> name : concatMap getTypeNames ts
+  TFunc at rt _  -> concatMap getTypeNames at ++ getTypeNames rt
+  TVar _ _       -> []
+  TGen _         -> []
 
 checkTypeDefined :: Map String a -> String -> Result ()
 checkTypeDefined definitions name =
@@ -128,7 +130,8 @@ makeConstructors ((t,d):ts) constrs = do
   let gens = defGenerics t
   let nGens = length gens
   let generalized = map TGen [1..nGens]
-  let sub = makeSub $ zip (map TVar gens) generalized
+  let kinds = map (const Star) generalized
+  let sub = makeSub $ zip (zipWith TVar gens kinds) generalized
 
   constrs' <- case d of
     T.TypeName{}         -> error "type aliases not supported yet"
@@ -136,14 +139,14 @@ makeConstructors ((t,d):ts) constrs = do
     T.Function{}         -> error "type aliases not supported yet"
 
     T.Struct   _ fields  -> do
-      let typ = TCon name generalized
+      let typ = TCon name generalized Star
 
       let fieldNames = map fst fields
       fieldTypes <- mapM (convertDecl sub . snd) fields
 
-      let cf = zipWith (\fname ftype -> (fname, Scheme nGens (TFunc [typ] ftype))) fieldNames fieldTypes
+      let cf = zipWith (\fname ftype -> (fname, Scheme kinds (TFunc [typ] ftype Star))) fieldNames fieldTypes
 
-      let sch = Scheme nGens (TFunc fieldTypes typ)
+      let sch = Scheme kinds (TFunc fieldTypes typ Star)
       let ctor = Constructor { ctorFields=cf, ctorType=sch }
       return $ Map.insert name ctor constrs
 
@@ -151,10 +154,10 @@ makeConstructors ((t,d):ts) constrs = do
     -- One for finding the type of `Maybe<T>` in type declarations, and
     -- one for each of `Just{val: val}` and `Nothing{}` constructors in the code.
     T.Enum     _ options ->
-      let typ = TCon name generalized
-          sch = Scheme nGens (TFunc [] typ)
+      let typ = TCon name generalized Star
+          sch = Scheme kinds (TFunc [] typ Star)
           ctor = Constructor { ctorFields=[], ctorType=sch }
-      in addEnumOptions nGens generalized sub typ options (Map.insert name ctor constrs)
+      in addEnumOptions kinds generalized sub typ options (Map.insert name ctor constrs)
   makeConstructors ts constrs'
 
 mustBeUnique :: String -> Map String b -> Result ()
@@ -162,38 +165,38 @@ mustBeUnique key m =
   when (Map.member key m) $ duplicateName key
 
 
-createStructFields :: Int -> Type -> [String] -> [Type] -> [(String, Scheme)]
-createStructFields nGens typ = zipWith makePair
-  where makePair fname ftype = (fname, Scheme nGens (TFunc [typ] ftype))
+createStructFields :: [Kind] -> Type -> [String] -> [Type] -> [(String, Scheme)]
+createStructFields kinds typ = zipWith makePair
+  where makePair fname ftype = (fname, Scheme kinds (TFunc [typ] ftype Star))
 
 
-addEnumOptions :: Int -> t -> Substitution -> Type -> [(String, [(String, TypeDeclT)])]  ->
+addEnumOptions :: [Kind] -> t -> Substitution -> Type -> [(String, [(String, TypeDeclT)])]  ->
   Map String Constructor -> Either Error (Map String Constructor)
 addEnumOptions _     _           _   _   []         constrs = return constrs
-addEnumOptions nGens generalized sub typ ((n,t):os) constrs = do
+addEnumOptions kinds generalized sub typ ((n,t):os) constrs = do
   mustBeUnique n constrs
 
   let fields = t
   let fieldNames = map fst fields
   fieldTypes <- mapM (convertDecl sub . snd) fields
-  let cf = zipWith (\fn ft -> (fn, Scheme nGens (TFunc [typ] ft))) fieldNames fieldTypes
+  let cf = zipWith (\fn ft -> (fn, Scheme kinds (TFunc [typ] ft Star))) fieldNames fieldTypes
 
-  let sch = Scheme nGens (TFunc fieldTypes typ)
+  let sch = Scheme kinds (TFunc fieldTypes typ Star)
   let ctor = Constructor { ctorFields=cf, ctorType=sch }
-  addEnumOptions nGens generalized sub typ os (Map.insert n ctor constrs)
+  addEnumOptions kinds generalized sub typ os (Map.insert n ctor constrs)
 
 
 convertDecl :: Substitution -> TypeDeclT -> Result Type
 convertDecl sub decl = case decl of
   T.TypeName _ tname      ->
-    return $ fromMaybe (TCon tname []) $ Map.lookup (TVar tname) sub
+    return $ fromMaybe (TCon tname [] Star) $ Map.lookup (TVar tname Star) sub
   T.Generic  _ tname gens -> do
     genTypes <- mapM (convertDecl sub) gens
-    return $ TCon tname genTypes
+    return $ TCon tname genTypes Star
   T.Function _ argTs retT -> do
     argTypes <- mapM (convertDecl sub) argTs
     retType <- convertDecl sub retT
-    return $ TFunc argTypes retType
+    return $ TFunc argTypes retType Star
   T.Struct{}              ->
     withLocations [decl] $ Left InvalidAnonStructure
   T.Enum{}                ->

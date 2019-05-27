@@ -47,10 +47,11 @@ testBuildStructConstructor = do
   let tDecl = T.Struct [] [("first", T.TypeName [] "A"), ("second", T.TypeName [] "B")]
   let result = makeConstructors [(tDef, tDecl)] Map.empty
 
-  let firstSch = Scheme 2 $ TFunc [TCon "Pair" [TGen 1, TGen 2]] (TGen 1)
-  let secondSch = Scheme 2 $ TFunc [TCon "Pair" [TGen 1, TGen 2]] (TGen 2)
+  let k = Star
+  let firstSch = Scheme [Star, Star] $ TFunc [TCon "Pair" [TGen 1, TGen 2] k] (TGen 1) k
+  let secondSch = Scheme [Star, Star] $ TFunc [TCon "Pair" [TGen 1, TGen 2] k] (TGen 2) k
   let fields = [("first", firstSch), ("second", secondSch)]
-  let sch = Scheme 2 (TFunc [TGen 1, TGen 2] $ TCon "Pair" [TGen 1, TGen 2])
+  let sch = Scheme [Star, Star] (TFunc [TGen 1, TGen 2] (TCon "Pair" [TGen 1, TGen 2] k) k)
   let ctor = Constructor { ctorFields=fields, ctorType=sch }
   let expected = Map.fromList [("Pair", ctor)]
   assertEq (Right expected) result
@@ -64,16 +65,17 @@ testBuildEnumConstructor = do
   let tDecl = T.Enum [] [("Just", optJust), ("Nothing", optNothing)]
   let result = makeConstructors [(tDef, tDecl)] Map.empty
 
+  let k = Star
 
-  let schNothing = Scheme 1 (TFunc [] $ TCon "Maybe" [TGen 1])
+  let schNothing = Scheme [Star] (TFunc [] (TCon "Maybe" [TGen 1] k) k)
   let ctorNothing = Constructor { ctorFields=[], ctorType=schNothing }
 
-  let schVal = Scheme 1 (TFunc [TCon "Maybe" [TGen 1]] (TGen 1))
+  let schVal = Scheme [Star] (TFunc [TCon "Maybe" [TGen 1] k] (TGen 1) k)
   let fieldsJust = [("val", schVal)]
-  let schJust = Scheme 1 (TFunc [TGen 1] $ TCon "Maybe" [TGen 1])
+  let schJust = Scheme [Star] (TFunc [TGen 1] (TCon "Maybe" [TGen 1] k) k)
   let ctorJust = Constructor { ctorFields=fieldsJust, ctorType=schJust }
 
-  let schMaybe = Scheme 1 (TFunc [] $ TCon "Maybe" [TGen 1])
+  let schMaybe = Scheme [Star] (TFunc [] (TCon "Maybe" [TGen 1] k) k)
   let ctorMaybe = Constructor { ctorFields=[], ctorType=schMaybe }
   let expected = Map.fromList [("Maybe", ctorMaybe), ("Just", ctorJust), ("Nothing", ctorNothing)]
 

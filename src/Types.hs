@@ -6,20 +6,35 @@ import qualified Data.Map as Map
 import Data.Set (Set)
 import qualified Data.Set as Set
 
--- TODO: Add kinds to TCon and TVar
+
+data Kind
+  = Star
+  | KFun Kind Kind
+  deriving (Eq, Ord, Show)
+
+kindN :: Int -> Kind
+kindN n
+  | n == 0    = Star
+  | n >  0    = KFun Star (kindN $ n - 1)
+  | otherwise = error "must be positive"
 
 -- Type is the internal representation of a type as used by the type system.
 -- Types that a user types in (no pun intended) are mapped to this sort of
 -- type before anything useful happens.
 data Type
-  = TCon String [Type]
-  | TFunc [Type] Type
-  | TVar String
+  = TCon String [Type] Kind
+  | TFunc [Type] Type Kind
+  | TVar String Kind
   | TGen Int
   deriving (Eq, Ord, Show)
 
+-- TypeVar is mostly used as a response from freeTypeVars
+data TypeVar =
+  TypeVar String Kind
+  deriving (Eq, Ord, Show)
+
 tcon0 :: String -> Type
-tcon0 name = TCon name []
+tcon0 name = TCon name [] Star
 
 tInt :: Type
 tInt    = tcon0 "Int"
@@ -56,26 +71,36 @@ composeSubs a b =
   Map.union (Map.map (apply b) a) b
 
 
+class HasKind t where
+  kind :: t -> Kind
+
+instance HasKind Type where
+  kind (TCon _ _ k) = k
+  kind (TFunc _ _ k) = k
+  kind (TVar _ k) = k
+  kind _ = error "cannot get kind for that"
+
+
 class Types t where
   apply :: Substitution -> t -> t
-  freeTypeVars :: t -> Set String
+  freeTypeVars :: t -> Set TypeVar
 
 instance Types Type where
-  apply sub (TCon con ts) =
-    TCon con (apply sub ts)
-  apply sub (TFunc args ret) =
-    TFunc (apply sub args) (apply sub ret)
-  apply sub tv@(TVar _) =
+  apply sub (TCon con ts k) =
+    TCon con (apply sub ts) k
+  apply sub (TFunc args ret k) =
+    TFunc (apply sub args) (apply sub ret) k
+  apply sub tv@(TVar _ _) =
     fromMaybe tv $ Map.lookup tv sub
   apply sub tg@(TGen _) =
     fromMaybe tg $ Map.lookup tg sub
 
-  freeTypeVars (TCon _ ts) =
+  freeTypeVars (TCon _ ts _) =
     freeTypeVars ts
-  freeTypeVars (TFunc args ret) =
+  freeTypeVars (TFunc args ret _) =
     Set.union (freeTypeVars args) (freeTypeVars ret)
-  freeTypeVars (TVar tv) =
-    Set.singleton tv
+  freeTypeVars (TVar tv k) =
+    Set.singleton $ TypeVar tv k
   freeTypeVars (TGen _) =
     Set.empty
 
@@ -85,18 +110,18 @@ instance (Types a) => Types [a] where
   freeTypeVars ts = foldl Set.union Set.empty (map freeTypeVars ts)
 
 
--- TODO: Add kinds to Scheme
--- The number is how many generic variables the scheme has
+-- The list of kinds has one kind for each generic type variable (TGen),
+-- and the number in a TGen indexes into the list of kinds.
 data Scheme
-  = Scheme Int Type
+  = Scheme [Kind] Type
   deriving (Eq, Show)
 
 instance Types Scheme where
-  apply sub (Scheme nvars t) = Scheme nvars (apply sub t)
+  apply sub (Scheme kinds t) = Scheme kinds (apply sub t)
   freeTypeVars (Scheme _ t) = freeTypeVars t
 
 asScheme :: Type -> Scheme
-asScheme = Scheme 0
+asScheme = Scheme []
 
 isGeneric :: Type -> Bool
 isGeneric (TGen _) = True
@@ -108,13 +133,13 @@ fromMaybe d Nothing  = d
 
 prettyPrint :: Type -> String
 prettyPrint t = case t of
-  TCon name [] ->
-    name
-  TCon name ts ->
-    name ++ "<" ++ intercalate "," (map prettyPrint ts) ++ ">"
-  TFunc as r ->
-    "func(" ++ intercalate "," (map prettyPrint as) ++ ") " ++ prettyPrint r
-  TVar s ->
-    s
+  TCon name [] k ->
+    name ++ "{{" ++ show k ++ "}}"
+  TCon name ts k ->
+    name ++ "<" ++ intercalate "," (map prettyPrint ts) ++ ">" ++ "{{" ++ show k ++ "}}"
+  TFunc as r k ->
+    "func(" ++ intercalate "," (map prettyPrint as) ++ ") " ++ prettyPrint r ++ "{{" ++ show k ++ "}}"
+  TVar s k ->
+    s ++ "{{" ++ show k ++ "}}"
   TGen i ->
     "_t" ++ show i

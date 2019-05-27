@@ -18,7 +18,7 @@ import AST.Annotation (Annotation, addType)
 import qualified AST.Declaration as D
 import qualified AST.Expression as E
 import qualified AST.Statement as S
-import Types (Type(..), tUnit)
+import Types (Type(..), Kind(..), tUnit)
 
 
 type ExpressionT      = E.Expression      Annotation
@@ -30,7 +30,7 @@ type StatementT       = S.Statement       Annotation
 
 interpret :: InferResult -> IO ()
 interpret body =
-  let mainT = TFunc [] tUnit
+  let mainT = TFunc [] tUnit Star
       callMain = E.Call [] (addType mainT $ E.Var [] "main") []
   in do
     scope <- startingState body

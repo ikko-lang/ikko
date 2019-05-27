@@ -3,12 +3,13 @@ module Errors where
 import Data.List (intercalate)
 
 import Region
-import Types (Type, prettyPrint)
+import Types (Type, Kind, prettyPrint)
 
 data Error
   = Mismatch Type Type
   | WrongType Type String
   | InfiniteType String -- a type variable
+  | KindError String Kind Kind
   | BindingTooGeneral String -- name of binding
   | CompilerBug String
   | DuplicateBinding String -- binding name
@@ -36,7 +37,7 @@ renderError err fileContent = case err of
   Unreachable fname ->
     "unreachable code in function " ++ fname
   Mismatch t1 t2 ->
-    "Type mismatch between " ++ prettyPrint t1 ++ " and " ++ prettyPrint t2
+    "Type mismatch between\n  " ++ prettyPrint t1 ++ "\nand\n  " ++ prettyPrint t2
   WrongType t1 s ->
     "Wrong type " ++ prettyPrint t1 ++ " " ++ s
   _ ->
