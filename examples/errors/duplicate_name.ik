@@ -1,8 +1,8 @@
-fn foo() {
-}
+fn foo():
+    pass
 
-fn foo() {
-}
+fn foo():
+    pass
 
-fn main() {
-}
+fn main():
+    pass
