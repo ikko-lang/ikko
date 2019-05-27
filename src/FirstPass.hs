@@ -45,6 +45,7 @@ data Constructor =
   Constructor
   { ctorFields :: [(String, Scheme)]
   , ctorType :: Scheme
+  , ctorKind :: Kind
   }
   deriving (Eq, Show)
 
@@ -150,7 +151,8 @@ makeConstructors ((t,d):ts) constrs = do
       let cf = zipWith (\fname ftype -> (fname, Scheme kinds (TFunc [typ] ftype Star))) fieldNames fieldTypes
 
       let sch = Scheme kinds (TFunc fieldTypes typ Star)
-      let ctor = Constructor { ctorFields=cf, ctorType=sch }
+      let k = kindN nGens
+      let ctor = Constructor { ctorFields=cf, ctorType=sch, ctorKind=k }
       return $ Map.insert name ctor constrs
 
     -- An enum like `Maybe T = Just T | Nothing` would need three constructors
@@ -159,8 +161,9 @@ makeConstructors ((t,d):ts) constrs = do
     T.Enum     _ options ->
       let typ = TCon name generalized Star
           sch = Scheme kinds (TFunc [] typ Star)
-          ctor = Constructor { ctorFields=[], ctorType=sch }
-      in addEnumOptions kinds generalized sub typ options (Map.insert name ctor constrs)
+          k = kindN nGens
+          ctor = Constructor { ctorFields=[], ctorType=sch, ctorKind=k }
+      in addEnumOptions k kinds generalized sub typ options (Map.insert name ctor constrs)
   makeConstructors ts constrs'
 
 mustBeUnique :: String -> Map String b -> Result ()
@@ -173,10 +176,10 @@ createStructFields kinds typ = zipWith makePair
   where makePair fname ftype = (fname, Scheme kinds (TFunc [typ] ftype Star))
 
 
-addEnumOptions :: [Kind] -> t -> Substitution -> Type -> [(String, [(String, TypeDeclT)])]  ->
+addEnumOptions :: Kind -> [Kind] -> t -> Substitution -> Type -> [(String, [(String, TypeDeclT)])]  ->
   Map String Constructor -> Either Error (Map String Constructor)
-addEnumOptions _     _           _   _   []         constrs = return constrs
-addEnumOptions kinds generalized sub typ ((n,t):os) constrs = do
+addEnumOptions _ _     _           _   _   []         constrs = return constrs
+addEnumOptions k kinds generalized sub typ ((n,t):os) constrs = do
   mustBeUnique n constrs
 
   let fields = t
@@ -185,8 +188,8 @@ addEnumOptions kinds generalized sub typ ((n,t):os) constrs = do
   let cf = zipWith (\fn ft -> (fn, Scheme kinds (TFunc [typ] ft Star))) fieldNames fieldTypes
 
   let sch = Scheme kinds (TFunc fieldTypes typ Star)
-  let ctor = Constructor { ctorFields=cf, ctorType=sch }
-  addEnumOptions kinds generalized sub typ os (Map.insert n ctor constrs)
+  let ctor = Constructor { ctorFields=cf, ctorType=sch, ctorKind=k }
+  addEnumOptions k kinds generalized sub typ os (Map.insert n ctor constrs)
 
 
 convertDecl :: Substitution -> TypeDeclT -> Result Type

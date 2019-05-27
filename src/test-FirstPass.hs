@@ -47,12 +47,12 @@ testBuildStructConstructor = do
   let tDecl = T.Struct [] [("first", T.TypeName [] "A"), ("second", T.TypeName [] "B")]
   let result = makeConstructors [(tDef, tDecl)] Map.empty
 
-  let k = Star
-  let firstSch = Scheme [Star, Star] $ TFunc [TCon "Pair" [TGen 1, TGen 2] k] (TGen 1) k
-  let secondSch = Scheme [Star, Star] $ TFunc [TCon "Pair" [TGen 1, TGen 2] k] (TGen 2) k
+  let firstSch = Scheme [Star, Star] $ TFunc [TCon "Pair" [TGen 1, TGen 2] Star] (TGen 1) Star
+  let secondSch = Scheme [Star, Star] $ TFunc [TCon "Pair" [TGen 1, TGen 2] Star] (TGen 2) Star
   let fields = [("first", firstSch), ("second", secondSch)]
-  let sch = Scheme [Star, Star] (TFunc [TGen 1, TGen 2] (TCon "Pair" [TGen 1, TGen 2] k) k)
-  let ctor = Constructor { ctorFields=fields, ctorType=sch }
+  let sch = Scheme [Star, Star] (TFunc [TGen 1, TGen 2] (TCon "Pair" [TGen 1, TGen 2] Star) Star)
+  let k = kindN 2
+  let ctor = Constructor { ctorFields=fields, ctorType=sch, ctorKind=k }
   let expected = Map.fromList [("Pair", ctor)]
   assertEq (Right expected) result
 
@@ -65,18 +65,18 @@ testBuildEnumConstructor = do
   let tDecl = T.Enum [] [("Just", optJust), ("Nothing", optNothing)]
   let result = makeConstructors [(tDef, tDecl)] Map.empty
 
-  let k = Star
+  let k = kindN 1
 
-  let schNothing = Scheme [Star] (TFunc [] (TCon "Maybe" [TGen 1] k) k)
-  let ctorNothing = Constructor { ctorFields=[], ctorType=schNothing }
+  let schNothing = Scheme [Star] (TFunc [] (TCon "Maybe" [TGen 1] Star) Star)
+  let ctorNothing = Constructor { ctorFields=[], ctorType=schNothing, ctorKind=k }
 
-  let schVal = Scheme [Star] (TFunc [TCon "Maybe" [TGen 1] k] (TGen 1) k)
+  let schVal = Scheme [Star] (TFunc [TCon "Maybe" [TGen 1] Star] (TGen 1) Star)
   let fieldsJust = [("val", schVal)]
-  let schJust = Scheme [Star] (TFunc [TGen 1] (TCon "Maybe" [TGen 1] k) k)
-  let ctorJust = Constructor { ctorFields=fieldsJust, ctorType=schJust }
+  let schJust = Scheme [Star] (TFunc [TGen 1] (TCon "Maybe" [TGen 1] Star) Star)
+  let ctorJust = Constructor { ctorFields=fieldsJust, ctorType=schJust, ctorKind=k }
 
-  let schMaybe = Scheme [Star] (TFunc [] (TCon "Maybe" [TGen 1] k) k)
-  let ctorMaybe = Constructor { ctorFields=[], ctorType=schMaybe }
+  let schMaybe = Scheme [Star] (TFunc [] (TCon "Maybe" [TGen 1] Star) Star)
+  let ctorMaybe = Constructor { ctorFields=[], ctorType=schMaybe, ctorKind=k }
   let expected = Map.fromList [("Maybe", ctorMaybe), ("Just", ctorJust), ("Nothing", ctorNothing)]
 
   assertEq (Right expected) result
