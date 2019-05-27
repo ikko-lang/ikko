@@ -48,6 +48,9 @@ import Types
   ( Substitution
   , Scheme(..)
   , Type(..)
+  , makeFuncType
+  , applyTypes
+  , getRoot
   , tInt
   , tFloat
   , tBool
@@ -272,7 +275,7 @@ applyEnv sub = Map.map (apply sub)
 startingEnv :: Environment
 startingEnv =
   Map.fromList
-  [ ("print", Scheme 1 (TFunc [TGen 1] tUnit)) ]
+  [ ("print", Scheme 1 (makeFuncType [TGen 1] tUnit)) ]
 
 runInfer :: Monad m => Map String Constructor
          -> StateT InferState m a -> m a
@@ -460,10 +463,11 @@ verifyContainsNoGenerics sch t =
 
 containsGenerics :: Type -> Bool
 containsGenerics t = case t of
-  TCon _ ts   -> any containsGenerics ts
-  TFunc as rt -> any containsGenerics (rt : as)
-  TVar _      -> False
-  TGen _      -> True
+  TGen _  -> True
+  TAp a b -> any containsGenerics [a, b]
+  TFunc _ -> False
+  TCon _  -> False
+  TVar _  -> False
 
 
 inferDecl :: Environment -> DeclarationT -> InferM DeclarationT
@@ -484,7 +488,7 @@ inferDecl env decl = case decl of
       Nothing -> return ()
       Just sc -> do
         dt <- instantiate sc
-        withLocations [stmt] $ unify dt (TFunc argTs retT)
+        withLocations [stmt] $ unify dt (makeFuncType argTs retT)
 
     let argEnv = Map.fromList $ zip args (map asScheme argTs)
     let env' = Map.union argEnv env
@@ -494,7 +498,7 @@ inferDecl env decl = case decl of
     sub <- getSub
     let argTypes = map (apply sub) argTs
     let returnT = apply sub retT
-    let t = TFunc argTypes returnT
+    let t = makeFuncType argTypes returnT
     return $ addType t $ D.Function a name mtype args stmt'
 
   D.TypeDef{} ->
@@ -619,9 +623,7 @@ inferMatchExpr env targetType matchExpr = case matchExpr of
 
     let sch = ctorType ctor
     enumT <- instantiate sch
-    (argTs, structT) <- case enumT of
-      TFunc a' r -> return (a', r)
-      _          -> inferErr $ CompilerBug "invalid constructor fn type"
+    (argTs, structT) <- destructFunctionType enumT
 
     -- Pattern matching is basically running the constructor function backwards
     withLocations [matchExpr] $ unify targetType structT
@@ -637,6 +639,23 @@ inferMatchExpr env targetType matchExpr = case matchExpr of
     let structType = apply sub2 structT
     return (addType structType $ S.MatchStructure a enumName typedFields, binds)
 
+
+destructFunctionType :: Type -> InferM ([Type], Type)
+destructFunctionType (TAp t ret) = do
+  argTypes <- getArgTypes t
+  return (reverse argTypes, ret)
+destructFunctionType _ =
+  inferErr $ CompilerBug "invalid function type"
+
+-- getArgTypes returns them backwards
+getArgTypes :: Type -> InferM [Type]
+getArgTypes (TFunc _) =
+  return []
+getArgTypes (TAp t a) = do
+  rest <- getArgTypes t
+  return (a : rest)
+getArgTypes _ =
+  inferErr $ CompilerBug "invalid function type"
 
 
 inferBlock :: Environment -> [StatementT] ->
@@ -660,8 +679,8 @@ getStructField :: Type -> [String] -> InferM Type
 getStructField = foldM getStructFieldType
 
 getStructFieldType :: Type -> String -> InferM Type
-getStructFieldType t fieldName = case t of
-  TCon structName _ -> do
+getStructFieldType t fieldName = case getRoot t of
+  TCon structName -> do
     resultT <- newTypeVar
 
     ctor <- getConstructor structName
@@ -671,15 +690,17 @@ getStructFieldType t fieldName = case t of
       Just sc -> return sc
     fieldFn <- instantiate fieldSch
 
-    unify fieldFn (TFunc [t] resultT)
+    unify fieldFn (makeFuncType [t] resultT)
     sub <- getSub
     return $ apply sub resultT
   TVar _ ->
     inferErr InsufficientlyDefinedType
   TGen _ ->
     inferErr $ CompilerBug "got an unexpected generic"
-  TFunc _ _ ->
-    inferErr $ WrongType t "expected a structure, got a function"
+  TAp _ _ ->
+    inferErr $ WrongType t "expected a structure, got a type application"
+  TFunc _ ->
+    inferErr $ WrongType t "expected a structure, got a function constructor"
 
 
 data DoesReturn
@@ -737,7 +758,7 @@ inferExpr env expr = case expr of
     exp' <- inferExpr env exp
     let expT = getType exp'
     let fnT = getUnaryFnType op
-    withLocations [expr] $ unify fnT (TFunc [expT] resultT)
+    withLocations [expr] $ unify fnT (makeFuncType [expT] resultT)
     sub <- getSub
     let t = apply sub resultT
     return $ addType t $ E.Unary a op exp'
@@ -749,7 +770,7 @@ inferExpr env expr = case expr of
     r' <- inferExpr env r
     let rt = getType r'
     let fnT = getBinaryFnType op
-    withLocations [expr] $ unify fnT (TFunc [lt, rt] resultT)
+    withLocations [expr] $ unify fnT (makeFuncType [lt, rt] resultT)
     sub <- getSub
     let t = apply sub resultT
     return $ addType t $ E.Binary a op l' r'
@@ -760,7 +781,7 @@ inferExpr env expr = case expr of
     let ft = getType fexp'
     args' <- mapM (inferExpr env) args
     let argTs = map getType args'
-    withLocations [expr] $ unify ft (TFunc argTs resultT)
+    withLocations [expr] $ unify ft (makeFuncType argTs resultT)
     sub <- getSub
     let t = apply sub resultT
     return $ addType t $ E.Call a fexp' args'
@@ -812,7 +833,7 @@ inferValue env val = case val of
     let fieldTypes = map getType typedFields
 
     -- Unify that with the "function" type of the struct's constructor
-    withLocations [val] $ unify fnT (TFunc fieldTypes resultT)
+    withLocations [val] $ unify fnT (makeFuncType fieldTypes resultT)
     -- and find out what the resulting type is
     sub <- getSub
     let t = apply sub resultT
@@ -845,14 +866,14 @@ typeFromDecl gmap tdecl = case tdecl of
     genTypes <- mapM (typeFromDecl gmap) genArgs
     t <- typeFromName name
     case t of
-      TCon con _ -> do
-        unify t (TCon con genTypes)
+      TAp _ _ -> do
+        unify t (applyTypes (getRoot t) genTypes)
         applyCurrentSub t
-      _ -> error "TODO: figure out what causes this case"
+      _ -> error $ "TODO: figure out what causes this case " ++ show t
   T.Function _ argTs retT -> do
     argTypes <- mapM (typeFromDecl gmap) argTs
     retType <- typeFromDecl gmap retT
-    return $ TFunc argTypes retType
+    return $ makeFuncType argTypes retType
   T.Struct{} ->
     error "shouldn't see a Struct here"
   T.Enum{} ->
@@ -863,7 +884,7 @@ typeFromDecl gmap tdecl = case tdecl of
 typeFromName :: String -> InferM Type
 typeFromName name
   | name `elem` builtinTypes =
-    return $ TCon name []
+    return $ TCon name
   | otherwise =
     getStructType name
 
@@ -902,7 +923,7 @@ lookupName name env = case Map.lookup name env of
 
 attemptCast :: String -> Type -> InferM Type
 attemptCast toTypeName fromType =
-  let toType = TCon toTypeName []
+  let toType = TCon toTypeName
   in if canCast fromType toType
      then return toType
      else inferErr $ CannotCast $ "cannot cast " ++ show fromType ++ " to " ++ toTypeName
@@ -916,21 +937,21 @@ canCast t1 t2
 
 getUnaryFnType :: UnaryOp -> Type
 getUnaryFnType op = case op of
-  BitInvert -> TFunc [tInt] tInt
-  BoolNot   -> TFunc [tBool] tBool
+  BitInvert -> makeFuncType [tInt] tInt
+  BoolNot   -> makeFuncType [tBool] tBool
 
 getBinaryFnType :: BinOp -> Type
 getBinaryFnType op
   | op `elem` intBinaryFuncs =
-    TFunc [tInt, tInt] tInt
+    makeFuncType [tInt, tInt] tInt
   | op `elem` numBinaryFuncs =
-    TFunc [tInt, tInt] tInt -- TODO: fix this once there are typeclasses
+    makeFuncType [tInt, tInt] tInt -- TODO: fix this once there are typeclasses
   | op `elem` boolBinaryFuncs =
-    TFunc [tBool, tBool] tBool
+    makeFuncType [tBool, tBool] tBool
   | op `elem` equalityFuncs =
-    TFunc [tInt, tInt] tBool -- TODO: fix this once there are typeclasses
+    makeFuncType [tInt, tInt] tBool -- TODO: fix this once there are typeclasses
   | op `elem` ordFuncs =
-    TFunc [tInt, tInt] tBool -- TODO: fix this once there are typeclasses
+    makeFuncType [tInt, tInt] tBool -- TODO: fix this once there are typeclasses
   | otherwise =
     error $ "getBinaryFnType missing a case for " ++ show op
 
@@ -983,13 +1004,18 @@ mgu t1 t2 = case (t1, t2) of
     --Left $ CompilerBug "A generic variable should have been instantiated"
     error $ "A generic variable should have been instantiated: " ++ show (t1, t2)
 
-  (TCon ac ats, TCon bc bts) | ac == bc && length ats == length bts ->
-    mguList emptySubstitution (zip ats bts)
+  (TFunc n1, TFunc n2) ->
+    if n1 == n2 then return emptySubstitution
+    else mismatch t1 t2
 
-  (TFunc aargs aret, TFunc bargs bret) | length aargs == length bargs -> do
-    sub <- mguList emptySubstitution (zip aargs bargs)
-    sub2 <- mgu (apply sub aret) (apply sub bret)
-    return $ composeSubs sub sub2
+  (TCon ac, TCon bc) ->
+    if ac == bc then return emptySubstitution
+    else mismatch t1 t2
+
+  (TAp a1 b1, TAp a2 b2) -> do
+    sub1 <- mgu a1 a2
+    sub2 <- mgu (apply sub1 b1) (apply sub1 b2)
+    return $ composeSubs sub1 sub2
 
   (TVar var, other) ->
     varBind var other
@@ -1009,12 +1035,6 @@ varBind var other
   | otherwise =
     return $ Map.singleton (TVar var) other
 -- TODO: check kinds in varBind
-
-mguList :: Substitution -> [(Type, Type)] -> Result Substitution
-mguList sub [] = return sub
-mguList sub ((t1,t2):ts) = do
-  sub2 <- mgu (apply sub t1) (apply sub t2)
-  mguList (composeSubs sub sub2) ts
 
 getType :: (Annotated a) => a Annotation -> Type
 getType node =
@@ -1077,14 +1097,15 @@ getGenPairs :: Type -> Type -> Maybe [(Int, Int)]
 getGenPairs t1 t2 = case (t1, t2) of
   (TGen a, TGen b) ->
     return [(a, b)]
-  (TCon cA tsA, TCon cB tsB) -> do
+  (TFunc n1, TFunc n2) -> do
+    requireEq n1 n2
+    return []
+  (TCon cA, TCon cB) -> do
     requireEq cA cB
-    requireEq (length tsA) (length tsB)
-    concat <$> zipWithM getGenPairs tsA tsB
-  (TFunc argsA retA, TFunc argsB retB) -> do
-    requireEq (length argsA) (length argsB)
-    gens1 <- getGenPairs retA retB
-    gens2 <- concat <$> zipWithM getGenPairs argsA argsB
+    return []
+  (TAp a1 b1, TAp a2 b2) -> do
+    gens1 <- getGenPairs a1 a2
+    gens2 <- getGenPairs b1 b2
     return $ gens1 ++ gens2
   (TVar a, TVar b) -> do
     requireEq a b
@@ -1099,14 +1120,15 @@ getVarPairs t1 t2 = case (t1, t2) of
     Nothing
   (_, TGen _) ->
     Nothing
-  (TCon cA tsA, TCon cB tsB) -> do
+  (TCon cA, TCon cB) -> do
     requireEq cA cB
-    requireEq (length tsA) (length tsB)
-    concat <$> zipWithM getVarPairs tsA tsB
-  (TFunc argsA retA, TFunc argsB retB) -> do
-    requireEq (length argsA) (length argsB)
-    vars1 <- getVarPairs retA retB
-    vars2 <- concat <$> zipWithM getVarPairs argsA argsB
+    return []
+  (TFunc n1, TFunc n2) -> do
+    requireEq n1 n2
+    return []
+  (TAp a1 b1, TAp a2 b2) -> do
+    vars1 <- getVarPairs a1 a2
+    vars2 <- getVarPairs b1 b2
     return $ vars1 ++ vars2
   (TVar a, TVar b) ->
     return [(a, b)]

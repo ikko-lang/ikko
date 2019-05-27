@@ -12,32 +12,48 @@ import qualified Data.Set as Set
 -- Types that a user types in (no pun intended) are mapped to this sort of
 -- type before anything useful happens.
 data Type
-  = TCon String [Type]
-  | TFunc [Type] Type
+  = TCon String
+  | TFunc Int -- number of arguments
+  | TAp Type Type
   | TVar String
   | TGen Int
   deriving (Eq, Ord, Show)
 
-tcon0 :: String -> Type
-tcon0 name = TCon name []
+tInt    :: Type
+tInt    = TCon "Int"
 
-tInt :: Type
-tInt    = tcon0 "Int"
+tFloat  :: Type
+tFloat  = TCon "Float"
 
-tFloat :: Type
-tFloat  = tcon0 "Float"
+tBool   :: Type
+tBool   = TCon "Bool"
 
-tBool :: Type
-tBool   = tcon0 "Bool"
-
-tChar :: Type
-tChar   = tcon0 "Char"
+tChar   :: Type
+tChar   = TCon "Char"
 
 tString :: Type
-tString = tcon0 "String"
+tString = TCon "String"
 
-tUnit :: Type
-tUnit   = tcon0 "()"
+tUnit   :: Type
+tUnit   = TCon "()"
+
+makeFuncType :: [Type] -> Type -> Type
+makeFuncType argTs retT =
+  applyTypes (TFunc $ length argTs) (argTs ++ [retT])
+
+applyTypes :: Type -> [Type] -> Type
+applyTypes = foldl TAp
+
+unApplyTypes :: Type -> (Type, [Type])
+unApplyTypes (TAp a b) =
+  let (t, ts) = unApplyTypes a
+  in (t, b : ts)
+unApplyTypes t         =
+  (t, [])
+
+getRoot :: Type -> Type
+getRoot (TAp a _) = getRoot a
+getRoot t         = t
 
 
 type Substitution = Map Type Type
@@ -61,23 +77,19 @@ class Types t where
   freeTypeVars :: t -> Set String
 
 instance Types Type where
-  apply sub (TCon con ts) =
-    TCon con (apply sub ts)
-  apply sub (TFunc args ret) =
-    TFunc (apply sub args) (apply sub ret)
-  apply sub tv@(TVar _) =
-    fromMaybe tv $ Map.lookup tv sub
-  apply sub tg@(TGen _) =
-    fromMaybe tg $ Map.lookup tg sub
+  apply sub t = case t of
+    TCon{}  -> t
+    TFunc{} -> t
+    TAp a b -> TAp (apply sub a) (apply sub b)
+    TVar{}  -> fromMaybe t $ Map.lookup t sub
+    TGen{}  -> fromMaybe t $ Map.lookup t sub
 
-  freeTypeVars (TCon _ ts) =
-    freeTypeVars ts
-  freeTypeVars (TFunc args ret) =
-    Set.union (freeTypeVars args) (freeTypeVars ret)
-  freeTypeVars (TVar tv) =
-    Set.singleton tv
-  freeTypeVars (TGen _) =
-    Set.empty
+  freeTypeVars t = case t of
+    TCon{}  -> Set.empty
+    TFunc{} -> Set.empty
+    TAp a b -> Set.union (freeTypeVars a) (freeTypeVars b)
+    TVar v  -> Set.singleton v
+    TGen{}  -> Set.empty
 
 
 instance (Types a) => Types [a] where
@@ -108,13 +120,29 @@ fromMaybe d Nothing  = d
 
 prettyPrint :: Type -> String
 prettyPrint t = case t of
-  TCon name [] ->
+  TCon name ->
     name
-  TCon name ts ->
-    name ++ "<" ++ intercalate "," (map prettyPrint ts) ++ ">"
-  TFunc as r ->
-    "func(" ++ intercalate "," (map prettyPrint as) ++ ") " ++ prettyPrint r
+  TFunc _ ->
+    "fn"
+  TAp _ _ ->
+    case getRoot t of
+      TFunc _ -> prettyPrintFn t
+      _       -> prettyPrintAp t
   TVar s ->
     s
   TGen i ->
     "_t" ++ show i
+
+prettyPrintFn :: Type -> String
+prettyPrintFn t =
+  let (_, ts) = unApplyTypes t
+      retT = prettyPrint $ last ts
+      argT = map prettyPrint $ init ts
+      args = intercalate ", " argT
+  in "fn(" ++ args ++ ") " ++ retT
+
+prettyPrintAp :: Type -> String
+prettyPrintAp t =
+  let (c, ts) = unApplyTypes t
+      gens = intercalate ", " $ map prettyPrint ts
+  in prettyPrint c ++ "<" ++ gens ++ ">"

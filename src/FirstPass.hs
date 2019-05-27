@@ -20,7 +20,7 @@ import qualified AST.Type as T
 import Errors
   ( Error(..)
   , Result )
-import Types (Scheme(..), Type(..), Substitution, makeSub)
+import Types (Scheme(..), Type(..), Substitution, makeSub, makeFuncType, applyTypes)
 import Util.Functions
 
 
@@ -51,7 +51,7 @@ data Constructor =
 
 valueType :: Constructor -> Scheme
 valueType ctor =
-  let (Scheme n (TFunc _ ret)) = ctorType ctor
+  let (Scheme n (TAp _ ret)) = ctorType ctor
   in Scheme n ret
 
 -- firstPass is the first thing run after parsing.
@@ -105,10 +105,11 @@ isBuiltIn t = t `elem` ["Int", "Float", "Bool", "Char", "String", "()"]
 
 getTypeNames :: Type -> [String]
 getTypeNames t = case t of
-  TCon name ts -> name : concatMap getTypeNames ts
-  TFunc at rt  -> concatMap getTypeNames at ++ getTypeNames rt
-  TVar _       -> []
-  TGen _       -> []
+  TCon name -> [name]
+  TFunc _   -> []
+  TAp a b   -> getTypeNames a ++ getTypeNames b
+  TVar _    -> []
+  TGen _    -> []
 
 checkTypeDefined :: Map String a -> String -> Result ()
 checkTypeDefined definitions name =
@@ -136,14 +137,14 @@ makeConstructors ((t,d):ts) constrs = do
     T.Function{}         -> error "type aliases not supported yet"
 
     T.Struct   _ fields  -> do
-      let typ = TCon name generalized
+      let typ = applyTypes (TCon name) generalized
 
       let fieldNames = map fst fields
       fieldTypes <- mapM (convertDecl sub . snd) fields
 
-      let cf = zipWith (\fname ftype -> (fname, Scheme nGens (TFunc [typ] ftype))) fieldNames fieldTypes
+      let cf = zipWith (\fname ftype -> (fname, Scheme nGens (makeFuncType [typ] ftype))) fieldNames fieldTypes
 
-      let sch = Scheme nGens (TFunc fieldTypes typ)
+      let sch = Scheme nGens (makeFuncType fieldTypes typ)
       let ctor = Constructor { ctorFields=cf, ctorType=sch }
       return $ Map.insert name ctor constrs
 
@@ -151,8 +152,8 @@ makeConstructors ((t,d):ts) constrs = do
     -- One for finding the type of `Maybe<T>` in type declarations, and
     -- one for each of `Just{val: val}` and `Nothing{}` constructors in the code.
     T.Enum     _ options ->
-      let typ = TCon name generalized
-          sch = Scheme nGens (TFunc [] typ)
+      let typ = applyTypes (TCon name) generalized
+          sch = Scheme nGens (makeFuncType [] typ)
           ctor = Constructor { ctorFields=[], ctorType=sch }
       in addEnumOptions nGens generalized sub typ options (Map.insert name ctor constrs)
   makeConstructors ts constrs'
@@ -164,7 +165,7 @@ mustBeUnique key m =
 
 createStructFields :: Int -> Type -> [String] -> [Type] -> [(String, Scheme)]
 createStructFields nGens typ = zipWith makePair
-  where makePair fname ftype = (fname, Scheme nGens (TFunc [typ] ftype))
+  where makePair fname ftype = (fname, Scheme nGens (makeFuncType [typ] ftype))
 
 
 addEnumOptions :: Int -> t -> Substitution -> Type -> [(String, [(String, TypeDeclT)])]  ->
@@ -176,9 +177,9 @@ addEnumOptions nGens generalized sub typ ((n,t):os) constrs = do
   let fields = t
   let fieldNames = map fst fields
   fieldTypes <- mapM (convertDecl sub . snd) fields
-  let cf = zipWith (\fn ft -> (fn, Scheme nGens (TFunc [typ] ft))) fieldNames fieldTypes
+  let cf = zipWith (\fn ft -> (fn, Scheme nGens (makeFuncType [typ] ft))) fieldNames fieldTypes
 
-  let sch = Scheme nGens (TFunc fieldTypes typ)
+  let sch = Scheme nGens (makeFuncType fieldTypes typ)
   let ctor = Constructor { ctorFields=cf, ctorType=sch }
   addEnumOptions nGens generalized sub typ os (Map.insert n ctor constrs)
 
@@ -186,14 +187,14 @@ addEnumOptions nGens generalized sub typ ((n,t):os) constrs = do
 convertDecl :: Substitution -> TypeDeclT -> Result Type
 convertDecl sub decl = case decl of
   T.TypeName _ tname      ->
-    return $ fromMaybe (TCon tname []) $ Map.lookup (TVar tname) sub
+    return $ fromMaybe (TCon tname) $ Map.lookup (TVar tname) sub
   T.Generic  _ tname gens -> do
     genTypes <- mapM (convertDecl sub) gens
-    return $ TCon tname genTypes
+    return $ applyTypes (TCon tname) genTypes
   T.Function _ argTs retT -> do
     argTypes <- mapM (convertDecl sub) argTs
     retType <- convertDecl sub retT
-    return $ TFunc argTypes retType
+    return $ makeFuncType argTypes retType
   T.Struct{}              ->
     withLocations [decl] $ Left InvalidAnonStructure
   T.Enum{}                ->

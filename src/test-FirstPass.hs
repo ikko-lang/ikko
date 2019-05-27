@@ -47,10 +47,10 @@ testBuildStructConstructor = do
   let tDecl = T.Struct [] [("first", T.TypeName [] "A"), ("second", T.TypeName [] "B")]
   let result = makeConstructors [(tDef, tDecl)] Map.empty
 
-  let firstSch = Scheme 2 $ TFunc [TCon "Pair" [TGen 1, TGen 2]] (TGen 1)
-  let secondSch = Scheme 2 $ TFunc [TCon "Pair" [TGen 1, TGen 2]] (TGen 2)
+  let firstSch = Scheme 2 $ makeFuncType [tcon "Pair" [TGen 1, TGen 2]] (TGen 1)
+  let secondSch = Scheme 2 $ makeFuncType [tcon "Pair" [TGen 1, TGen 2]] (TGen 2)
   let fields = [("first", firstSch), ("second", secondSch)]
-  let sch = Scheme 2 (TFunc [TGen 1, TGen 2] $ TCon "Pair" [TGen 1, TGen 2])
+  let sch = Scheme 2 (makeFuncType [TGen 1, TGen 2] $ tcon "Pair" [TGen 1, TGen 2])
   let ctor = Constructor { ctorFields=fields, ctorType=sch }
   let expected = Map.fromList [("Pair", ctor)]
   assertEq (Right expected) result
@@ -65,15 +65,15 @@ testBuildEnumConstructor = do
   let result = makeConstructors [(tDef, tDecl)] Map.empty
 
 
-  let schNothing = Scheme 1 (TFunc [] $ TCon "Maybe" [TGen 1])
+  let schNothing = Scheme 1 (makeFuncType [] $ tcon "Maybe" [TGen 1])
   let ctorNothing = Constructor { ctorFields=[], ctorType=schNothing }
 
-  let schVal = Scheme 1 (TFunc [TCon "Maybe" [TGen 1]] (TGen 1))
+  let schVal = Scheme 1 (makeFuncType [tcon "Maybe" [TGen 1]] (TGen 1))
   let fieldsJust = [("val", schVal)]
-  let schJust = Scheme 1 (TFunc [TGen 1] $ TCon "Maybe" [TGen 1])
+  let schJust = Scheme 1 (makeFuncType [TGen 1] $ tcon "Maybe" [TGen 1])
   let ctorJust = Constructor { ctorFields=fieldsJust, ctorType=schJust }
 
-  let schMaybe = Scheme 1 (TFunc [] $ TCon "Maybe" [TGen 1])
+  let schMaybe = Scheme 1 (makeFuncType [] $ tcon "Maybe" [TGen 1])
   let ctorMaybe = Constructor { ctorFields=[], ctorType=schMaybe }
   let expected = Map.fromList [("Maybe", ctorMaybe), ("Just", ctorJust), ("Nothing", ctorNothing)]
 
@@ -82,3 +82,6 @@ testBuildEnumConstructor = do
 
 printStmt =
   S.Expr [] $ E.Call [] (E.Var [] "print") [E.Val [] (E.StrVal [] "hello world")]
+
+tcon :: String -> [Type] -> Type
+tcon name = applyTypes (TCon name)
