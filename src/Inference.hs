@@ -55,7 +55,6 @@ import Types
   , tBool
   , tString
   , tUnit
-  , kindN
   , apply
   , asScheme
   , composeSubs
@@ -66,7 +65,7 @@ import Errors
   ( Error(..)
   , Result )
 import FirstPass
-  ( Module(..), Constructor(..), bindings, valueType )
+  ( Module(..), Constructor(..), bindings )
 import Util.Graph
   ( components )
 
@@ -838,9 +837,11 @@ orderAs keys pairs = map getPair keys
 getStructType :: String -> InferM Type
 getStructType name = do
   ctor <- getConstructor name
-  let sch = valueType ctor
+  let sch = ctorValue ctor
   instantiate sch
 
+-- gmap is the generics declared within this type, e.g. A and B for
+-- `type Pair<A,B> struct: ...`
 typeFromDecl :: Map String Type -> TypeDeclT -> InferM Type
 typeFromDecl gmap tdecl = case tdecl of
   T.TypeName _ name ->

@@ -33,6 +33,7 @@ data TypeVar =
   TypeVar String Kind
   deriving (Eq, Ord, Show)
 
+{-
 -- checkKinds returns false if the kinds are not correctly assembled
 checkKinds :: Type -> Bool
 checkKinds t = case t of
@@ -41,11 +42,11 @@ checkKinds t = case t of
     checkKindApplication ts k
   TFunc at rt _ ->
     all checkKinds at &&
-    checkKinds r
+    checkKinds rt
   TVar _ _ ->
-    return True
+    True
   TGen _ ->
-    return True
+    True
 
 -- This should allow:
 --   Int
@@ -59,7 +60,7 @@ checkKinds t = case t of
 checkKindApplication :: [Type] -> Kind -> Bool
 checkKindApplication ts k = case (ts, k) of
   _ -> undefined
-
+-}
 
 tcon0 :: String -> Type
 tcon0 name = TCon name [] Star

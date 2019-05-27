@@ -43,19 +43,17 @@ data Module =
 
 data Constructor =
   Constructor
+  -- ctorFields is the list of fields, each containing a namd the type of the
+  -- function to access that field.
   { ctorFields :: [(String, Scheme)]
+  -- ctorType is a function type used to construct (or destruct) the structure.
   , ctorType :: Scheme
-  , ctorKind :: Kind
+  -- ctorValue is a constructor type. This is used when dealing with the type in
+  -- type applications. The type may need to be applied to other types, in which
+  -- case the kind will be something like * -> *.
+  , ctorValue :: Scheme
   }
   deriving (Eq, Show)
-
-
--- valueType returns a scheme containing the type produced by the constructor
--- function
-valueType :: Constructor -> Scheme
-valueType ctor =
-  let (Scheme kinds (TFunc _ ret _)) = ctorType ctor
-  in Scheme kinds ret
 
 -- firstPass is the first thing run after parsing.
 -- It prepares data for type inference.
@@ -144,6 +142,8 @@ makeConstructors ((t,d):ts) constrs = do
       -- depending on how the type is used in the definition.  (E.g. if it is T
       -- and is used as T<Int, Int>)
       let typ = TCon name generalized Star
+      let k = kindN nGens
+      let valT = Scheme kinds $ TCon name [] k
 
       let fieldNames = map fst fields
       fieldTypes <- mapM (convertDecl sub . snd) fields
@@ -151,8 +151,7 @@ makeConstructors ((t,d):ts) constrs = do
       let cf = zipWith (\fname ftype -> (fname, Scheme kinds (TFunc [typ] ftype Star))) fieldNames fieldTypes
 
       let sch = Scheme kinds (TFunc fieldTypes typ Star)
-      let k = kindN nGens
-      let ctor = Constructor { ctorFields=cf, ctorType=sch, ctorKind=k }
+      let ctor = Constructor { ctorFields=cf, ctorType=sch, ctorValue=valT }
       return $ Map.insert name ctor constrs
 
     -- An enum like `Maybe T = Just T | Nothing` would need three constructors
@@ -162,8 +161,9 @@ makeConstructors ((t,d):ts) constrs = do
       let typ = TCon name generalized Star
           sch = Scheme kinds (TFunc [] typ Star)
           k = kindN nGens
-          ctor = Constructor { ctorFields=[], ctorType=sch, ctorKind=k }
-      in addEnumOptions k kinds generalized sub typ options (Map.insert name ctor constrs)
+          valT = Scheme kinds $ TCon name [] k
+          ctor = Constructor { ctorFields=[], ctorType=sch, ctorValue=valT }
+      in addEnumOptions kinds generalized sub typ valT options (Map.insert name ctor constrs)
   makeConstructors ts constrs'
 
 mustBeUnique :: String -> Map String b -> Result ()
@@ -176,10 +176,10 @@ createStructFields kinds typ = zipWith makePair
   where makePair fname ftype = (fname, Scheme kinds (TFunc [typ] ftype Star))
 
 
-addEnumOptions :: Kind -> [Kind] -> t -> Substitution -> Type -> [(String, [(String, TypeDeclT)])]  ->
+addEnumOptions :: [Kind] -> t -> Substitution -> Type -> Scheme -> [(String, [(String, TypeDeclT)])]  ->
   Map String Constructor -> Either Error (Map String Constructor)
-addEnumOptions _ _     _           _   _   []         constrs = return constrs
-addEnumOptions k kinds generalized sub typ ((n,t):os) constrs = do
+addEnumOptions _     _           _   _   _    []         constrs = return constrs
+addEnumOptions kinds generalized sub typ valT ((n,t):os) constrs = do
   mustBeUnique n constrs
 
   let fields = t
@@ -188,8 +188,8 @@ addEnumOptions k kinds generalized sub typ ((n,t):os) constrs = do
   let cf = zipWith (\fn ft -> (fn, Scheme kinds (TFunc [typ] ft Star))) fieldNames fieldTypes
 
   let sch = Scheme kinds (TFunc fieldTypes typ Star)
-  let ctor = Constructor { ctorFields=cf, ctorType=sch, ctorKind=k }
-  addEnumOptions k kinds generalized sub typ os (Map.insert n ctor constrs)
+  let ctor = Constructor { ctorFields=cf, ctorType=sch, ctorValue=valT }
+  addEnumOptions kinds generalized sub typ valT os (Map.insert n ctor constrs)
 
 
 convertDecl :: Substitution -> TypeDeclT -> Result Type
