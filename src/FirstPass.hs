@@ -139,6 +139,9 @@ makeConstructors ((t,d):ts) constrs = do
     T.Function{}         -> error "type aliases not supported yet"
 
     T.Struct   _ fields  -> do
+      -- To support advanced kinds, this type's kind might need to be some KFun,
+      -- depending on how the type is used in the definition.  (E.g. if it is T
+      -- and is used as T<Int, Int>)
       let typ = TCon name generalized Star
 
       let fieldNames = map fst fields
