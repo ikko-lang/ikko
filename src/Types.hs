@@ -33,6 +33,34 @@ data TypeVar =
   TypeVar String Kind
   deriving (Eq, Ord, Show)
 
+-- checkKinds returns false if the kinds are not correctly assembled
+checkKinds :: Type -> Bool
+checkKinds t = case t of
+  TCon _ ts k ->
+    all checkKinds ts &&
+    checkKindApplication ts k
+  TFunc at rt _ ->
+    all checkKinds at &&
+    checkKinds r
+  TVar _ _ ->
+    return True
+  TGen _ ->
+    return True
+
+-- This should allow:
+--   Int
+--   Maybe Int
+--   Either Int Bool
+--   Either (Maybe Int) Bool
+-- This should not allow:
+--   Maybe
+--   Either Int
+--   Either (Maybe) Bool
+checkKindApplication :: [Type] -> Kind -> Bool
+checkKindApplication ts k = case (ts, k) of
+  _ -> undefined
+
+
 tcon0 :: String -> Type
 tcon0 name = TCon name [] Star
 
