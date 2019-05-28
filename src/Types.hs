@@ -15,30 +15,44 @@ data Kind
 -- Types that a user types in (no pun intended) are mapped to this sort of
 -- type before anything useful happens.
 data Type
-  = TCon String
+  = TCon String Kind
   | TFunc Int -- number of arguments
+          Kind -- it should require (1+num args) type params
   | TAp Type Type
-  | TVar String
-  | TGen Int
+  | TVar TyVar
+  | TGen Int Kind
   deriving (Eq, Ord, Show)
 
+data TyVar
+  = TyVar String Kind
+  deriving (Eq, Ord, Show)
+
+simpleType :: String -> Type
+simpleType name = TCon name Star
+
+makeVar :: String -> Kind -> Type
+makeVar name k = TVar (TyVar name k)
+
+simpleVar :: String -> Type
+simpleVar name = makeVar name Star
+
 tInt    :: Type
-tInt    = TCon "Int"
+tInt    = simpleType "Int"
 
 tFloat  :: Type
-tFloat  = TCon "Float"
+tFloat  = simpleType "Float"
 
 tBool   :: Type
-tBool   = TCon "Bool"
+tBool   = simpleType "Bool"
 
 tChar   :: Type
-tChar   = TCon "Char"
+tChar   = simpleType "Char"
 
 tString :: Type
-tString = TCon "String"
+tString = simpleType "String"
 
 tUnit   :: Type
-tUnit   = TCon "()"
+tUnit   = simpleType "()"
 
 kindN :: Int -> Kind
 kindN n
@@ -48,7 +62,9 @@ kindN n
 
 makeFuncType :: [Type] -> Type -> Type
 makeFuncType argTs retT =
-  applyTypes (TFunc $ length argTs) (argTs ++ [retT])
+  let nargs = length argTs
+      k = kindN (nargs + 1)
+  in applyTypes (TFunc nargs k) (argTs ++ [retT])
 
 applyTypes :: Type -> [Type] -> Type
 applyTypes = foldl TAp
@@ -80,10 +96,25 @@ composeSubs :: Substitution -> Substitution -> Substitution
 composeSubs a b =
   Map.union (Map.map (apply b) a) b
 
+class HasKind t where
+  getKind :: t -> Kind
+
+instance HasKind Type where
+  getKind t = case t of
+    TCon  _ k -> k
+    TFunc _ k -> k
+    TAp   a _ -> case getKind a of
+      (KFun k' _) -> k'
+      Star        -> error "compiler bug: invalid kind for LHS of type application"
+    TVar  tv  -> getKind tv
+    TGen  _ k -> k
+
+instance HasKind TyVar where
+  getKind (TyVar _ k) = k
 
 class Types t where
   apply :: Substitution -> t -> t
-  freeTypeVars :: t -> Set String
+  freeTypeVars :: t -> Set TyVar
 
 instance Types Type where
   apply sub t = case t of
@@ -97,31 +128,31 @@ instance Types Type where
     TCon{}  -> Set.empty
     TFunc{} -> Set.empty
     TAp a b -> Set.union (freeTypeVars a) (freeTypeVars b)
-    TVar v  -> Set.singleton v
+    TVar tv -> Set.singleton tv
     TGen{}  -> Set.empty
 
 
 instance (Types a) => Types [a] where
-  apply sub = map (apply sub)
-  freeTypeVars ts = foldl Set.union Set.empty (map freeTypeVars ts)
+  apply sub =
+    map (apply sub)
+  freeTypeVars ts =
+    foldl Set.union Set.empty (map freeTypeVars ts)
 
 
--- TODO: Add kinds to Scheme
--- The number is how many generic variables the scheme has
 data Scheme
-  = Scheme Int Type
+  = Scheme [Kind] Type
   deriving (Eq, Show)
 
 instance Types Scheme where
-  apply sub (Scheme nvars t) = Scheme nvars (apply sub t)
+  apply sub (Scheme ks t) = Scheme ks (apply sub t)
   freeTypeVars (Scheme _ t) = freeTypeVars t
 
 asScheme :: Type -> Scheme
-asScheme = Scheme 0
+asScheme = Scheme []
 
 isGeneric :: Type -> Bool
-isGeneric (TGen _) = True
-isGeneric _        = False
+isGeneric TGen{} = True
+isGeneric _      = False
 
 fromMaybe :: a -> Maybe a -> a
 fromMaybe _ (Just x) = x
@@ -129,17 +160,17 @@ fromMaybe d Nothing  = d
 
 prettyPrint :: Type -> String
 prettyPrint t = case t of
-  TCon name ->
+  TCon name _      ->
     name
-  TFunc _ ->
+  TFunc _ _        ->
     "fn"
-  TAp _ _ ->
+  TAp _ _          ->
     case getRoot t of
-      TFunc _ -> prettyPrintFn t
-      _       -> prettyPrintAp t
-  TVar s ->
+      TFunc _ _ -> prettyPrintFn t
+      _         -> prettyPrintAp t
+  TVar (TyVar s _) ->
     s
-  TGen i ->
+  TGen i _         ->
     "_t" ++ show i
 
 prettyPrintFn :: Type -> String

@@ -3,12 +3,13 @@ module Errors where
 import Data.List (intercalate)
 
 import Region
-import Types (Type, prettyPrint)
+import Types (Type, Kind, TyVar, prettyPrint)
 
 data Error
   = Mismatch Type Type
   | WrongType Type String
-  | InfiniteType String -- a type variable
+  | InfiniteType TyVar -- a type variable
+  | KindMismatch TyVar Kind Kind
   | BindingTooGeneral String -- name of binding
   | CompilerBug String
   | DuplicateBinding String -- binding name

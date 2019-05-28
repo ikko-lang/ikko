@@ -48,9 +48,13 @@ import Types
   ( Substitution
   , Scheme(..)
   , Type(..)
+  , Kind(..)
+  , TyVar(..)
   , makeFuncType
+  , makeVar
   , applyTypes
   , getRoot
+  , getKind
   , tInt
   , tFloat
   , tBool
@@ -275,7 +279,7 @@ applyEnv sub = Map.map (apply sub)
 startingEnv :: Environment
 startingEnv =
   Map.fromList
-  [ ("print", Scheme 1 (makeFuncType [TGen 1] tUnit)) ]
+  [ ("print", Scheme [Star] (makeFuncType [TGen 1 Star] tUnit)) ]
 
 runInfer :: Monad m => Map String Constructor
          -> StateT InferState m a -> m a
@@ -301,12 +305,15 @@ mustJust :: Maybe a -> a
 mustJust (Just a) = a
 mustJust Nothing = error "Must be Just"
 
-newTypeVar :: InferM Type
-newTypeVar = do
+newTypeVar :: Kind -> InferM Type
+newTypeVar kind = do
   st <- get
   let n = nextVarN st
   put $ st { nextVarN = 1 + n }
-  return $ TVar $ "_v" ++ show n
+  return $ makeVar ("_v" ++ show n) kind
+
+newStarVar :: InferM Type
+newStarVar = newTypeVar Star
 
 getSub :: InferM Substitution
 getSub = gets currentSub
@@ -379,7 +386,7 @@ getExplicitType (name, decl) = case decl of
     let Just (gens, tdecl) = mgendecl
     gmap <- genericMap gens
     t <- withLocations [decl] $ typeFromDecl gmap tdecl
-    let varSet = Set.fromList gens
+    let varSet = Set.fromList $ map (`TyVar` Star) gens
     return (name, generalizeOver varSet t)
 
   D.TypeDef{} ->
@@ -388,7 +395,7 @@ getExplicitType (name, decl) = case decl of
 
 genericMap :: [T.Type] -> InferM (Map String Type)
 genericMap tnames = do
-  gens <- mapM (const newTypeVar) tnames
+  gens <- mapM (const newStarVar) tnames
   return $ Map.fromList $ zip tnames gens
 
 inferGroups :: [[(String, DeclarationT)]] -> Environment ->
@@ -404,7 +411,7 @@ inferGroup :: [(String, DeclarationT)] -> Environment ->
               InferM (TypedDecls, Environment)
 inferGroup impls env = do
   -- Map each binding to a new type variable while recursively typing these bindings
-  ts <- mapM (const newTypeVar) impls
+  ts <- mapM (const newStarVar) impls
   let bindingNames = map fst impls
   let bindingSchemes = map asScheme ts
   let groupBindings = Map.fromList $ zip bindingNames bindingSchemes
@@ -437,18 +444,21 @@ generalize env t =
   let envVars = foldl Set.union Set.empty $ map (freeTypeVars . snd) $ Map.toList env
   in generalizeOver envVars t
 
-generalizeOver :: Set String -> Type -> Scheme
+generalizeOver :: Set TyVar -> Type -> Scheme
 generalizeOver envVars t =
-  let freeVars = map TVar $ Set.toList $ Set.difference (freeTypeVars t) envVars
-      genVars = map TGen [1..]
+  let varList = Set.toList $ Set.difference (freeTypeVars t) envVars
+      kinds = map getKind varList
+      freeVars = map TVar varList
+      genVars = zipWith TGen [1..] kinds
       sub = Map.fromList $ zip freeVars genVars
-  in Scheme (length freeVars) (apply sub t)
+  in Scheme kinds (apply sub t)
 
 instantiate :: Scheme -> InferM Type
-instantiate sch@(Scheme n t) = do
+instantiate sch@(Scheme kinds t) = do
+  let n = length kinds
   let range = [1..n]
-  newVars <- mapM (const newTypeVar) range
-  let genVars = map TGen range
+  newVars <- mapM newTypeVar kinds
+  let genVars = zipWith TGen range kinds
   let sub = Map.fromList $ zip genVars newVars
   let applied = apply sub t
   verifyContainsNoGenerics sch applied
@@ -463,11 +473,11 @@ verifyContainsNoGenerics sch t =
 
 containsGenerics :: Type -> Bool
 containsGenerics t = case t of
-  TGen _  -> True
-  TAp a b -> any containsGenerics [a, b]
-  TFunc _ -> False
-  TCon _  -> False
-  TVar _  -> False
+  TGen _ _  -> True
+  TAp a b   -> any containsGenerics [a, b]
+  TFunc _ _ -> False
+  TCon _ _  -> False
+  TVar   _  -> False
 
 
 inferDecl :: Environment -> DeclarationT -> InferM DeclarationT
@@ -478,8 +488,8 @@ inferDecl env decl = case decl of
     return $ addType t $ D.Let a name mtype expr'
 
   D.Function a name mtype args stmt -> do
-    argTs <- mapM (const newTypeVar) args
-    retT <- newTypeVar
+    argTs <- mapM (const newStarVar) args
+    retT <- newStarVar
 
     -- This case statement exists so that, by the time
     -- a field access is reached, the type of that variable
@@ -649,7 +659,7 @@ destructFunctionType _ =
 
 -- getArgTypes returns them backwards
 getArgTypes :: Type -> InferM [Type]
-getArgTypes (TFunc _) =
+getArgTypes (TFunc _ _) =
   return []
 getArgTypes (TAp t a) = do
   rest <- getArgTypes t
@@ -680,8 +690,8 @@ getStructField = foldM getStructFieldType
 
 getStructFieldType :: Type -> String -> InferM Type
 getStructFieldType t fieldName = case getRoot t of
-  TCon structName -> do
-    resultT <- newTypeVar
+  TCon structName _ -> do
+    resultT <- newStarVar
 
     ctor <- getConstructor structName
     let fields = ctorFields ctor
@@ -693,13 +703,13 @@ getStructFieldType t fieldName = case getRoot t of
     unify fieldFn (makeFuncType [t] resultT)
     sub <- getSub
     return $ apply sub resultT
-  TVar _ ->
+  TVar _            ->
     inferErr InsufficientlyDefinedType
-  TGen _ ->
+  TGen _ _          ->
     inferErr $ CompilerBug "got an unexpected generic"
-  TAp _ _ ->
+  TAp _ _           ->
     inferErr $ WrongType t "expected a structure, got a type application"
-  TFunc _ ->
+  TFunc _ _         ->
     inferErr $ WrongType t "expected a structure, got a function constructor"
 
 
@@ -754,7 +764,7 @@ inferExpr env expr = case expr of
     return $ addType t $ E.Val a val'
 
   E.Unary a op exp -> do
-    resultT <- newTypeVar
+    resultT <- newStarVar
     exp' <- inferExpr env exp
     let expT = getType exp'
     let fnT = getUnaryFnType op
@@ -764,7 +774,7 @@ inferExpr env expr = case expr of
     return $ addType t $ E.Unary a op exp'
 
   E.Binary a op l r -> do
-    resultT <- newTypeVar
+    resultT <- newStarVar
     l' <- inferExpr env l
     let lt = getType l'
     r' <- inferExpr env r
@@ -776,7 +786,7 @@ inferExpr env expr = case expr of
     return $ addType t $ E.Binary a op l' r'
 
   E.Call a fexp args -> do
-    resultT <- newTypeVar
+    resultT <- newStarVar
     fexp' <- inferExpr env fexp
     let ft = getType fexp'
     args' <- mapM (inferExpr env) args
@@ -819,7 +829,7 @@ inferValue env val = case val of
     return $ addType tFloat $ E.FloatVal a f
 
   E.StructVal a tname fields  -> do
-    resultT <- newTypeVar
+    resultT <- newStarVar
 
     ctor <- withLocations [val] $ getConstructor tname
     checkSameFields tname (ctorFields ctor) fields
@@ -880,11 +890,11 @@ typeFromDecl gmap tdecl = case tdecl of
     error "shouldn't see an Enum here"
 
 
--- TODO: Check the kind of the type (which will require a lot of plumbing)
 typeFromName :: String -> InferM Type
 typeFromName name
   | name `elem` builtinTypes =
-    return $ TCon name
+    -- At the moment, all built-in types have the kind *
+    return $ TCon name Star
   | otherwise =
     getStructType name
 
@@ -923,7 +933,7 @@ lookupName name env = case Map.lookup name env of
 
 attemptCast :: String -> Type -> InferM Type
 attemptCast toTypeName fromType =
-  let toType = TCon toTypeName
+  let toType = TCon toTypeName Star
   in if canCast fromType toType
      then return toType
      else inferErr $ CannotCast $ "cannot cast " ++ show fromType ++ " to " ++ toTypeName
@@ -997,19 +1007,20 @@ unifies t1 t2 = isRight $ mgu t1 t2
 -- apply s t1 == apply s t2
 mgu :: Type -> Type -> Result Substitution
 mgu t1 t2 = case (t1, t2) of
-  (TGen _, _) ->
+  (TGen _ _, _) ->
     --Left $ CompilerBug "A generic variable should have been instantiated"
     error $ "A generic variable should have been instantiated: " ++ show (t1, t2)
-  (_, TGen _) ->
+  (_, TGen _ _) ->
     --Left $ CompilerBug "A generic variable should have been instantiated"
     error $ "A generic variable should have been instantiated: " ++ show (t1, t2)
 
-  (TFunc n1, TFunc n2) ->
+  (TFunc n1 _, TFunc n2 _) ->
     if n1 == n2 then return emptySubstitution
     else mismatch t1 t2
 
-  (TCon ac, TCon bc) ->
-    if ac == bc then return emptySubstitution
+  (TCon ac ak, TCon bc bk) ->
+    if ac == bc && ak == bk
+    then return emptySubstitution
     else mismatch t1 t2
 
   (TAp a1 b1, TAp a2 b2) -> do
@@ -1017,24 +1028,25 @@ mgu t1 t2 = case (t1, t2) of
     sub2 <- mgu (apply sub1 b1) (apply sub1 b2)
     return $ composeSubs sub1 sub2
 
-  (TVar var, other) ->
-    varBind var other
+  (TVar tv, other) ->
+    varBind tv other
 
-  (other, TVar var) ->
-    varBind var other
+  (other, TVar tv) ->
+    varBind tv other
 
   _ ->
     mismatch t1 t2
 
-varBind :: String -> Type -> Result Substitution
-varBind var other
-  | other == TVar var =
+varBind :: TyVar -> Type -> Result Substitution
+varBind tv@(TyVar _ k) other
+  | other == TVar tv =
     return emptySubstitution
-  | Set.member var (freeTypeVars other) =
-    Left $ InfiniteType var
+  | Set.member tv (freeTypeVars other) =
+    Left $ InfiniteType tv
+  | k /= getKind other =
+    Left $ KindMismatch tv k (getKind other)
   | otherwise =
-    return $ Map.singleton (TVar var) other
--- TODO: check kinds in varBind
+    return $ Map.singleton (TVar tv) other
 
 getType :: (Annotated a) => a Annotation -> Type
 getType node =
@@ -1095,20 +1107,24 @@ isInjective = check Map.empty
 
 getGenPairs :: Type -> Type -> Maybe [(Int, Int)]
 getGenPairs t1 t2 = case (t1, t2) of
-  (TGen a, TGen b) ->
+  (TGen a k1, TGen b k2) -> do
+    requireEq k1 k2
     return [(a, b)]
-  (TFunc n1, TFunc n2) -> do
+  (TFunc n1 k1, TFunc n2 k2) -> do
     requireEq n1 n2
+    requireEq k1 k2
     return []
-  (TCon cA, TCon cB) -> do
+  (TCon cA k1, TCon cB k2) -> do
     requireEq cA cB
+    requireEq k1 k2
     return []
   (TAp a1 b1, TAp a2 b2) -> do
     gens1 <- getGenPairs a1 a2
     gens2 <- getGenPairs b1 b2
     return $ gens1 ++ gens2
-  (TVar a, TVar b) -> do
+  (TVar (TyVar a k1), TVar (TyVar b k2)) -> do
     requireEq a b
+    requireEq k1 k2
     return []
   _ ->
     Nothing
@@ -1116,21 +1132,24 @@ getGenPairs t1 t2 = case (t1, t2) of
 
 getVarPairs :: Type -> Type -> Maybe [(String, String)]
 getVarPairs t1 t2 = case (t1, t2) of
-  (TGen _, _) ->
+  (TGen _ _, _) ->
     Nothing
-  (_, TGen _) ->
+  (_, TGen _ _) ->
     Nothing
-  (TCon cA, TCon cB) -> do
+  (TCon cA kA, TCon cB kB) -> do
     requireEq cA cB
+    requireEq kA kB
     return []
-  (TFunc n1, TFunc n2) -> do
+  (TFunc n1 k1, TFunc n2 k2) -> do
     requireEq n1 n2
+    requireEq k1 k2
     return []
   (TAp a1 b1, TAp a2 b2) -> do
     vars1 <- getVarPairs a1 a2
     vars2 <- getVarPairs b1 b2
     return $ vars1 ++ vars2
-  (TVar a, TVar b) ->
+  (TVar (TyVar a k1), TVar (TyVar b k2)) -> do
+    requireEq k1 k2
     return [(a, b)]
   _ ->
     Nothing
