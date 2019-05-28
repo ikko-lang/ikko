@@ -6,7 +6,10 @@ import qualified Data.Map as Map
 import Data.Set (Set)
 import qualified Data.Set as Set
 
--- TODO: Add kinds to TCon and TVar
+data Kind
+  = Star
+  | KFun Kind Kind
+  deriving (Eq, Ord, Show)
 
 -- Type is the internal representation of a type as used by the type system.
 -- Types that a user types in (no pun intended) are mapped to this sort of
@@ -36,6 +39,12 @@ tString = TCon "String"
 
 tUnit   :: Type
 tUnit   = TCon "()"
+
+kindN :: Int -> Kind
+kindN n
+  | n == 0    = Star
+  | n >  0    = KFun Star (kindN $ n - 1)
+  | otherwise = error "negative"
 
 makeFuncType :: [Type] -> Type -> Type
 makeFuncType argTs retT =
