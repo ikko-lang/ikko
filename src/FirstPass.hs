@@ -52,12 +52,10 @@ data Module =
   }
   deriving (Show)
 
--- TODO: also record the type with the kind it should have
--- in type applications
 data Constructor =
   Constructor
   { ctorFields :: [(String, Scheme)]
-  , ctorType :: Scheme
+  , ctorType :: Scheme -- type of the constructor
   }
   deriving (Eq, Show)
 

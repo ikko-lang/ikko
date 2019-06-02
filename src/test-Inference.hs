@@ -14,12 +14,15 @@ import FirstPass
 
 import Types
   ( Substitution
+  , Kind(..)
   , Type(..)
+  , TyVar(..)
   , Scheme(..)
   , applyTypes
   , asScheme
   , composeSubs
   , apply
+  , kindN
   , tUnit
   , tInt
   , tBool
@@ -106,10 +109,10 @@ tests =
 -- which the other tests rely on to tell if the thing they test is working.
 comparingTypes :: Assertion
 comparingTypes = do
-  let varA = TVar "a"
-  let varB = TVar "b"
-  let varX = TVar "x"
-  let varY = TVar "y"
+  let varA = tvar "a"
+  let varB = tvar "b"
+  let varX = tvar "x"
+  let varY = tvar "y"
   assertTrue $ alphaSubstitues varX varX
   assertTrue $ alphaSubstitues varX varY
   assertTrue $ alphaSubstitues tInt tInt
@@ -124,24 +127,24 @@ comparingTypes = do
 
   assertFalse $ alphaSubstitues (makeFuncType [varX] varY) (makeFuncType [varA, varA] varY)
   assertFalse $ alphaSubstitues (tcon "L" [varX]) (tcon "L" [varB, varB])
-  assertFalse $ alphaSubstitues (TGen 1) (TGen 1)
+  assertFalse $ alphaSubstitues (tgenN 1) (tgenN 1)
   assertFalse $ alphaSubstitues tInt tBool
-  assertFalse $ alphaSubstitues (TVar "x") tInt
-  assertFalse $ alphaSubstitues tInt (TVar "x")
+  assertFalse $ alphaSubstitues (tvar "x") tInt
+  assertFalse $ alphaSubstitues tInt (tvar "x")
 
 composingSubs :: Assertion
 composingSubs = do
   -- Try the trivial cases
   assertEq emptySubstitution (composeSubs emptySubstitution emptySubstitution)
 
-  let subAB = makeSub [(TVar "a", TVar "b")]
+  let subAB = makeSub [(tvar "a", tvar "b")]
   assertEq subAB (composeSubs emptySubstitution subAB)
   assertEq subAB (composeSubs subAB emptySubstitution)
   assertEq subAB (composeSubs subAB subAB)
 
   -- Test updating elements of the other substitution
-  let subBC = makeSub [(TVar "b", TVar "c")]
-  let subABtoC = makeSub [(TVar "a", TVar "c"), (TVar "b", TVar "c")]
+  let subBC = makeSub [(tvar "b", tvar "c")]
+  let subABtoC = makeSub [(tvar "a", tvar "c"), (tvar "b", tvar "c")]
   assertEq subABtoC $ composeSubs subAB subBC
 
 basicUnification :: Assertion
@@ -152,43 +155,43 @@ basicUnification = do
   let result2 = mgu tUnit tInt
   assertLeft result2
 
-  let result3 = mgu (TVar "a") tInt
-  assertEq (Right $ makeSub [(TVar "a", tInt)]) result3
+  let result3 = mgu (tvar "a") tInt
+  assertEq (Right $ makeSub [(tvar "a", tInt)]) result3
 
-  let result4 = mgu (TVar "a") (TVar "a")
+  let result4 = mgu (tvar "a") (tvar "a")
   assertEq (Right emptySubstitution) result4
 
-  let result5 = mgu tInt (TVar "x")
-  assertEq (Right $ makeSub [(TVar "x", tInt)]) result5
+  let result5 = mgu tInt (tvar "x")
+  assertEq (Right $ makeSub [(tvar "x", tInt)]) result5
 
-  let result6 = mgu (TVar "a") (TVar "b")
-  assertEq (Right $ makeSub [(TVar "a", TVar "b")]) result6
+  let result6 = mgu (tvar "a") (tvar "b")
+  assertEq (Right $ makeSub [(tvar "a", tvar "b")]) result6
 
-  let result7 = mgu (TVar "a") (makeFuncType [TVar "a"] tInt)
-  assertEq (Left $ InfiniteType "a") result7
+  let result7 = mgu (tvar "a") (makeFuncType [tvar "a"] tInt)
+  assertEq (Left $ InfiniteType $ TyVar "a" Star) result7
 
 
 recursiveUnification :: Assertion
 recursiveUnification = do
-  let result1 = mgu (makeFuncType [TVar "a"] (TVar "a")) (makeFuncType [TVar "b"] tInt)
-  let expected1 = makeSub [(TVar "a", tInt), (TVar "b", tInt)]
+  let result1 = mgu (makeFuncType [tvar "a"] (tvar "a")) (makeFuncType [tvar "b"] tInt)
+  let expected1 = makeSub [(tvar "a", tInt), (tvar "b", tInt)]
   assertEq (Right expected1) result1
 
-  let result2 = mgu (makeFuncType [TVar "a"] (TVar "b")) (makeFuncType [TVar "b"] (TVar "a"))
-  let expected2 = makeSub [(TVar "a", TVar "b")]
+  let result2 = mgu (makeFuncType [tvar "a"] (tvar "b")) (makeFuncType [tvar "b"] (tvar "a"))
+  let expected2 = makeSub [(tvar "a", tvar "b")]
   assertEq (Right expected2) result2
 
-  let result3 = mgu (makeFuncType [tInt] (TVar "a")) (makeFuncType [TVar "a"] tUnit)
+  let result3 = mgu (makeFuncType [tInt] (tvar "a")) (makeFuncType [tvar "a"] tUnit)
   assertLeft result3
 
 
 instantiation :: Assertion
 instantiation = do
-  assertInstantiates (Scheme 0 tInt) tInt
-  assertInstantiates (Scheme 1 tInt) tInt
-  assertInstantiates (Scheme 1 $ TGen 1) (TVar "a")
-  let sch2 = Scheme 2 (makeFuncType [TGen 1, TGen 2] (TGen 2))
-  let t2 = makeFuncType [TVar "a", TVar "b"] (TVar "b")
+  assertInstantiates (Scheme [] tInt) tInt
+  assertInstantiates (Scheme [Star] tInt) tInt
+  assertInstantiates (Scheme [Star] $ tgenN 1) (tvar "a")
+  let sch2 = Scheme [Star, Star] (makeFuncType [tgenN 1, tgenN 2] (tgenN 2))
+  let t2 = makeFuncType [tvar "a", tvar "b"] (tvar "b")
   assertInstantiates sch2 t2
 
 
@@ -238,12 +241,12 @@ functionInference = do
 
   -- f(x) { return 1; }
   let func2 = func "f" ["x"] [returnJust $ intVal 1]
-  let type2 = makeFuncType [TVar "a"] tInt
+  let type2 = makeFuncType [tvar "a"] tInt
   assertDeclTypes type2 func2
 
   -- f(x) { return x; }
   let func3 = func "f" ["x"] [returnJust varX]
-  let type3 = makeFuncType [TVar "a"] (TVar "a")
+  let type3 = makeFuncType [tvar "a"] (tvar "a")
   assertDeclTypes type3 func3
 
   -- f(x) { return x + 1; }
@@ -265,7 +268,7 @@ functionInference = do
   let letStmt = S.Let [] "y" Nothing (E.Var [] "x")
   let returnStmt = returnJust (E.Var [] "y")
   let funcLet = func "f" ["x"] [letStmt, returnStmt]
-  let idType = makeFuncType [TVar "a"] (TVar "a")
+  let idType = makeFuncType [tvar "a"] (tvar "a")
   assertDeclTypes idType funcLet
 
   -- TODO: Test assignment
@@ -316,7 +319,7 @@ returnABC = do
   let returnC = returnJust $ E.Var [] "c"
   let ifStmt = S.If [] (E.Var [] "a") [returnB] (Just returnC)
   let func9 = func "f" ["a", "b", "c"] [ifStmt]
-  let type9 = makeFuncType [tBool, TVar "a", TVar "a"] (TVar "a")
+  let type9 = makeFuncType [tBool, tvar "a", tvar "a"] (tvar "a")
   assertDeclTypes type9 func9
 
 
@@ -327,7 +330,7 @@ returnABC2 = do
   let returnC = returnJust $ E.Var [] "c"
   let ifStmt = S.If [] (E.Var [] "a") [returnB] Nothing
   let func9 = func "f" ["a", "b", "c"] [ifStmt, returnC]
-  let type9 = makeFuncType [tBool, TVar "a", TVar "a"] (TVar "a")
+  let type9 = makeFuncType [tBool, tvar "a", tvar "a"] (tvar "a")
   assertDeclTypes type9 func9
 
 
@@ -337,7 +340,7 @@ returnAB = do
   let returnB = returnJust $ E.Var [] "b"
   let ifStmt = S.If [] (E.Var [] "a") [returnB] (Just returnB)
   let funcAB = func "f" ["a", "b"] [ifStmt]
-  let typeAB = makeFuncType [tBool, TVar "a"] (TVar "a")
+  let typeAB = makeFuncType [tBool, tvar "a"] (tvar "a")
   assertDeclTypes typeAB funcAB
 
 returnABEnd :: Assertion
@@ -346,7 +349,7 @@ returnABEnd = do
   let returnB = returnJust $ E.Var [] "b"
   let ifStmt = S.If [] (E.Var [] "a") [returnB] Nothing
   let funcAB = func "f" ["a", "b"] [ifStmt, returnB]
-  let typeAB = makeFuncType [tBool, TVar "a"] (TVar "a")
+  let typeAB = makeFuncType [tBool, tvar "a"] (tvar "a")
   assertDeclTypes typeAB funcAB
 
 
@@ -367,9 +370,9 @@ firstClassFunction = do
   let call = E.Call [] varX [varY, varY]
   let f = func "f" ["x", "y"] [returnJust call]
   -- (a -> a -> b)
-  let xType = makeFuncType [TVar "a", TVar "a"] (TVar "b")
+  let xType = makeFuncType [tvar "a", tvar "a"] (tvar "b")
   -- (a -> a -> b) -> a -> b
-  let t = makeFuncType [xType, TVar "a"] (TVar "b")
+  let t = makeFuncType [xType, tvar "a"] (tvar "b")
   assertDeclTypes t f
 
 
@@ -443,14 +446,14 @@ simpleModule = do
   -- f(n) { return n + 1; }
   let nPlus1 = func "f" ["n"] [returnJust $ E.Binary [] E.Plus varN (intVal 1)]
   let result1 = inferModule $ makeModule [("f", nPlus1)]
-  let intFn = Scheme 0 $ makeFuncType [tInt] tInt
+  let intFn = Scheme [] $ makeFuncType [tInt] tInt
   assertModuleTypes "f" intFn result1
 
   -- Test basic let-polymorphism
   -- id(x) { return x; }
   let identity = func "id" ["x"] [returnJust varX]
   let result2 = inferModule $ makeModule [("id", identity)]
-  let idType = Scheme 1 $ makeFuncType [TGen 1] (TGen 1)
+  let idType = Scheme [Star] $ makeFuncType [tgenN 1] (tgenN 1)
   assertModuleTypes "id" idType result2
 
   -- Test usage of let-polymorphism
@@ -460,7 +463,7 @@ simpleModule = do
   let idExpr = E.Call [] varID [E.Binary [] E.Greater varN id3]
   let fN = func "f" ["n"] [returnJust idExpr]
   let result3 = inferModule $ makeModule [("f", fN), ("id", identity)]
-  let fNType = Scheme 0 $ makeFuncType [tInt] tBool
+  let fNType = Scheme [] $ makeFuncType [tInt] tBool
   assertModuleTypes "f" fNType result3
   assertModuleTypes "id" idType result3
 
@@ -473,8 +476,8 @@ simpleModule = do
   let idOfX = E.Call [] varID [varX]
   let fCallsID = func "f" ["x"] [returnJust $ E.Binary [] E.Greater idOfX (intVal 2)]
   let result4 = inferModule $ makeModule [("f", fCallsID), ("id", identityCallingF)]
-  let lessGeneralIDType = Scheme 0 $ makeFuncType [tInt] tInt
-  let fCallsIDType = Scheme 0 $ makeFuncType [tInt] tBool
+  let lessGeneralIDType = Scheme [] $ makeFuncType [tInt] tInt
+  let fCallsIDType = Scheme [] $ makeFuncType [tInt] tBool
   assertModuleTypes "f" fCallsIDType result4
   assertModuleTypes "id" lessGeneralIDType result4
 
@@ -600,11 +603,11 @@ assertNoGenerics t =
 
 containsGenerics :: Type -> Bool
 containsGenerics t = case t of
-  TCon _  -> False
-  TFunc _ -> False
-  TAp a b -> any containsGenerics [a, b]
-  TVar _  -> False
-  TGen _  -> True
+  TCon _ _  -> False
+  TFunc _ _ -> False
+  TAp a b   -> any containsGenerics [a, b]
+  TVar _    -> False
+  TGen _ _  -> True
 
 
 -- expected, result
@@ -616,10 +619,11 @@ assertSchemeUnifies s1@(Scheme n1 _) s2@(Scheme n2 _) = do
 
 -- testInstantiate instantiates without the InferM monad available
 testInstantiate :: Scheme -> Type
-testInstantiate (Scheme n t) =
-  let range = [1..n]
-      newVars = [TVar $ "-t" ++ show i | i <- range]
-      genVars = map TGen range
+testInstantiate (Scheme kinds t) =
+  let n = length kinds
+      range = [1..n]
+      newVars = map TVar $ zipWith TyVar ["-t" ++ show i | i <- range] kinds
+      genVars = zipWith TGen range kinds
       sub = Map.fromList $ zip genVars newVars
   in apply sub t
 
@@ -643,9 +647,15 @@ func name args stmts =
 
 
 tcon :: String -> [Type] -> Type
-tcon name = applyTypes (TCon name)
+tcon name types =
+  applyTypes (TCon name $ kindN $ length types) types
 
 
+tgenN :: Int -> Type
+tgenN n = TGen  n Star
+
+tvar :: String -> Type
+tvar name = TVar $ TyVar name Star
 -- TODO
 -- Test inference for DAGs of functions
 ---- let id x = x in (id id) 123

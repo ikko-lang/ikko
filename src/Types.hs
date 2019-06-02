@@ -103,9 +103,13 @@ instance HasKind Type where
   getKind t = case t of
     TCon  _ k -> k
     TFunc _ k -> k
-    TAp   a _ -> case getKind a of
-      (KFun k' _) -> k'
-      Star        -> error "compiler bug: invalid kind for LHS of type application"
+    TAp   a b -> case getKind a of
+      (KFun _ k') -> k'
+      Star        ->
+        let lhs = "lhs = " ++ show a
+            rhs = ", rhs = " ++ show b
+            msg = "compiler bug: invalid kind for LHS of type application, " ++ lhs ++ rhs
+        in error msg
     TVar  tv  -> getKind tv
     TGen  _ k -> k
 
