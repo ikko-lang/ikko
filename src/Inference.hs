@@ -50,6 +50,9 @@ import Types
   , Type(..)
   , Kind(..)
   , TyVar(..)
+  , Qualified(..)
+  , QualType
+  , asQual
   , makeFuncType
   , makeVar
   , applyTypes
@@ -64,6 +67,7 @@ import Types
   , asScheme
   , composeSubs
   , emptySubstitution
+  , unqualify
   , freeTypeVars )
 import Errors
   ( Error(..)
@@ -281,7 +285,7 @@ applyEnv sub = Map.map (apply sub)
 startingEnv :: Environment
 startingEnv =
   Map.fromList
-  [ ("print", Scheme [Star] (makeFuncType [TGen 1 Star] tUnit)) ]
+  [ ("print", Scheme [Star] (asQual $ makeFuncType [TGen 1 Star] tUnit)) ]
 
 runInfer :: Monad m => Map String Constructor
          -> StateT InferState m a -> m a
@@ -358,15 +362,17 @@ tiExpls expls env = case expls of
 tiExpl ::  String -> DeclarationT -> Environment -> InferM DeclarationT
 tiExpl name decl env = do
   let sch = mustLookup name env
-  t <- instantiate sch
+  qt@(Qualified ps t) <- instantiate sch
+  -- TODO: use ps
 
   d <- inferDecl env decl
-  let dt = getType d
+  let qdt@(Qualified ps' dt) = getType d
+  -- TODO: use ps'
 
   withLocations [decl] $ unify t dt
 
   sub <- getSub
-  let sch' = generalize (applyEnv sub env) (apply sub dt)
+  let sch' = generalize (applyEnv sub env) (apply sub qdt)
   if not $ schemesEquivalent sch' sch
     then inferErrFor [decl] $ BindingTooGeneral $ name ++ ": " ++ show (sch', sch, dt)
     else return d
@@ -388,9 +394,9 @@ getExplicitType (name, decl) = case decl of
     let Just tdecl = mgendecl
     let gens = T.getGenerics tdecl
     gmap <- genericMap gens
-    t <- withLocations [decl] $ typeFromDecl gmap tdecl
+    qt <- withLocations [decl] $ typeFromDecl gmap tdecl
     let varSet = Set.fromList $ map (`TyVar` Star) gens
-    return (name, generalizeOver varSet t)
+    return (name, generalizeOver varSet qt)
 
   D.TypeDef{} ->
     error "shouldn't see a typedef here"
@@ -446,29 +452,29 @@ inferDecls env decls ts = mapM infer (zip decls ts)
           withLocations [d] $ unify t (getType d)
           return (name, d)
 
-generalize :: Environment -> Type -> Scheme
-generalize env t =
+generalize :: Environment -> QualType -> Scheme
+generalize env qt =
   let envVars = foldl Set.union Set.empty $ map (freeTypeVars . snd) $ Map.toList env
-  in generalizeOver envVars t
+  in generalizeOver envVars qt
 
-generalizeOver :: Set TyVar -> Type -> Scheme
-generalizeOver envVars t =
-  let varList = Set.toList $ Set.difference (freeTypeVars t) envVars
+generalizeOver :: Set TyVar -> QualType -> Scheme
+generalizeOver envVars qt =
+  let varList = Set.toList $ Set.difference (freeTypeVars qt) envVars
       kinds = map getKind varList
       freeVars = map TVar varList
       genVars = zipWith TGen [1..] kinds
       sub = Map.fromList $ zip freeVars genVars
-  in Scheme kinds (apply sub t)
+  in Scheme kinds (apply sub qt)
 
-instantiate :: Scheme -> InferM Type
-instantiate sch@(Scheme kinds t) = do
+instantiate :: Scheme -> InferM QualType
+instantiate sch@(Scheme kinds qt) = do
   let n = length kinds
   let range = [1..n]
   newVars <- mapM newTypeVar kinds
   let genVars = zipWith TGen range kinds
   let sub = Map.fromList $ zip genVars newVars
-  let applied = apply sub t
-  verifyContainsNoGenerics sch applied
+  let applied = apply sub qt
+  verifyContainsNoGenerics sch (unqualify applied)
   return applied
 
 
@@ -491,8 +497,8 @@ inferDecl :: Environment -> DeclarationT -> InferM DeclarationT
 inferDecl env decl = case decl of
   D.Let a name mtype expr -> do
     expr' <- inferExpr env expr
-    let t = getType expr'
-    return $ addType t $ D.Let a name mtype expr'
+    let qt = getType expr'
+    return $ addType qt $ D.Let a name mtype expr'
 
   D.Function a name mtype args stmt -> do
     argTs <- mapM (const newStarVar) args
@@ -516,14 +522,16 @@ inferDecl env decl = case decl of
     let argTypes = map (apply sub) argTs
     let returnT = apply sub retT
     let t = makeFuncType argTypes returnT
-    return $ addType t $ D.Function a name mtype args stmt'
+    -- TODO: get predicates
+    let qt = Qualified [] t
+    return $ addType qt $ D.Function a name mtype args stmt'
 
   D.TypeDef{} ->
     inferErr $ CompilerBug "TypeDefs are not bindings"
 
   D.InstanceDecl{} ->
     -- TODO: check the type of each method
-    return $ addType tUnit decl
+    return $ addType (Qualified [] tUnit) decl
 
 inferStmt :: Environment -> StatementT ->
              InferM (StatementT, DoesReturn)
@@ -608,11 +616,13 @@ inferStmt env stmt = case stmt of
     casesAndReturns <- mapM (inferMatchCase env exprType) cases
     let (cases', returns) = unzip casesAndReturns
     let resultType = getType (head cases')
-    let result = addType resultType $ S.Match a expr' cases'
+    -- TODO: Get predicates
+    let qt = Qualified [] resultType
+    let result = addType qt $ S.Match a expr' cases'
     return (result, foldl1 combineReturns returns)
 
   S.Pass a -> do
-    let result = addType tUnit $ S.Pass a
+    let result = addType (Qualified [] tUnit) $ S.Pass a
     return (result, NeverReturns)
 
 
@@ -625,7 +635,7 @@ inferMatchCase env t (S.MatchCase matchExpr stmt) = do
   return (S.MatchCase matchExpr' stmt', doesReturn)
 
 
-inferMatchExpr :: Environment -> Type -> MatchExpressionT
+inferMatchExpr :: Environment -> QualType -> MatchExpressionT
                -> InferM (MatchExpressionT, [(String, Scheme)])
 inferMatchExpr env targetType matchExpr = case matchExpr of
   S.MatchAnything a ->
@@ -658,6 +668,8 @@ inferMatchExpr env targetType matchExpr = case matchExpr of
 
     sub2 <- getSub
     let structType = apply sub2 structT
+    -- TODO: Handle predicates
+    let qt = Qualified [] structType
     return (addType structType $ S.MatchStructure a enumName typedFields, binds)
 
 
@@ -767,12 +779,14 @@ inferExpr env expr = case expr of
   E.Paren a e -> do
     e' <- inferExpr env e
     let t = getType e'
-    return $ addType t $ E.Paren a e'
+    let qt = Qualified [] t -- TODO handle predicates
+    return $ addType qt $ E.Paren a e'
 
   E.Val a val -> do
     val' <- inferValue env val
     let t = getType val'
-    return $ addType t $ E.Val a val'
+    let qt = Qualified [] t -- TODO handle predicates
+    return $ addType qt $ E.Val a val'
 
   E.Unary a op exp -> do
     resultT <- newStarVar
@@ -782,7 +796,8 @@ inferExpr env expr = case expr of
     withLocations [expr] $ unify fnT (makeFuncType [expT] resultT)
     sub <- getSub
     let t = apply sub resultT
-    return $ addType t $ E.Unary a op exp'
+    let qt = Qualified [] t -- TODO handle predicates
+    return $ addType qt $ E.Unary a op exp'
 
   E.Binary a op l r -> do
     resultT <- newStarVar
@@ -794,7 +809,8 @@ inferExpr env expr = case expr of
     withLocations [expr] $ unify fnT (makeFuncType [lt, rt] resultT)
     sub <- getSub
     let t = apply sub resultT
-    return $ addType t $ E.Binary a op l' r'
+    let qt = Qualified [] t -- TODO handle predicates
+    return $ addType qt $ E.Binary a op l' r'
 
   E.Call a fexp args -> do
     resultT <- newStarVar
@@ -805,39 +821,43 @@ inferExpr env expr = case expr of
     withLocations [expr] $ unify ft (makeFuncType argTs resultT)
     sub <- getSub
     let t = apply sub resultT
-    return $ addType t $ E.Call a fexp' args'
+    let qt = Qualified [] t -- TODO handle predicates
+    return $ addType qt $ E.Call a fexp' args'
 
   E.Cast a t exp -> do
     exp' <- inferExpr env exp
     let expT = getType exp'
     sch <- withLocations [expr] $ attemptCast t expT
-    return $ addType sch $ E.Cast a t exp'
+    let qt = Qualified [] t -- TODO handle predicates
+    return $ addType sch $ E.Cast a qt exp'
 
   E.Var a name -> do
     sch <- withLocations [expr] $ lookupName name env
     t <- instantiate sch
-    return $ addType t $ E.Var a name
+    let qt = Qualified [] t -- TODO handle predicates
+    return $ addType qt $ E.Var a name
 
   E.Access a exp field -> do
     exp' <- inferExpr env exp
     sub <- getSub
     let etype = apply sub $ getType exp'
     t <- withLocations [expr] $ getStructFieldType etype field
-    return $ addType t $ E.Access a exp' field
+    let qt = Qualified [] t -- TODO handle predicates
+    return $ addType qt $ E.Access a exp' field
 
 inferValue :: Environment -> ValueT -> InferM ValueT
 inferValue env val = case val of
   E.StrVal a str ->
-    return $ addType tString $ E.StrVal a str
+    return $ addType (asQual tString) $ E.StrVal a str
 
   E.BoolVal a b ->
-    return $ addType tBool $ E.BoolVal a b
+    return $ addType (asQual tBool) $ E.BoolVal a b
 
   E.IntVal a i ->
-    return $ addType tInt $ E.IntVal a i
+    return $ addType (asQual tInt) $ E.IntVal a i
 
   E.FloatVal a f ->
-    return $ addType tFloat $ E.FloatVal a f
+    return $ addType (asQual tFloat) $ E.FloatVal a f
 
   E.StructVal a tname fields  -> do
     resultT <- newStarVar
@@ -858,34 +878,36 @@ inferValue env val = case val of
     -- and find out what the resulting type is
     sub <- getSub
     let t = apply sub resultT
+    -- TODO: get predicates
+    let qt = Qualified [] t
 
     -- Finally, put the fields back in the right order since the order is
     -- significant in evaluation
     let namedTypedFields = zip (map fst sorted) typedFields
     let orderedFields = orderAs (map fst fields) namedTypedFields
 
-    return $ addType t $ E.StructVal a tname orderedFields
+    return $ addType qt $ E.StructVal a tname orderedFields
 
 
 orderAs :: (Ord a) => [a] -> [(a, b)] -> [(a, b)]
 orderAs keys pairs = map getPair keys
   where getPair key = (key, lookup_ key pairs)
 
-getStructType :: String -> InferM Type
+getStructType :: String -> InferM QualType
 getStructType name = do
   ctor <- getConstructor name
   let sch = valueType ctor
   instantiate sch
 
-typeFromDecl :: Map String Type -> TypeDeclT -> InferM Type
-typeFromDecl gmap tdecl = case tdecl of
+typeFromDecl :: Map String Type -> TypeDeclT -> InferM QualType
+typeFromDecl gmap tdecl = do
   T.TypeName _ name ->
     case Map.lookup name gmap of
       Nothing -> typeFromName name
-      Just t  -> return t
+      Just t  -> return $ Qualified [] t
   T.Generic _ name genArgs -> do
     genTypes <- mapM (typeFromDecl gmap) genArgs
-    t <- typeFromName name
+    qt <- typeFromName name
     case t of
       TAp _ _ -> do
         unify t (applyTypes (getRoot t) genTypes)
@@ -904,11 +926,11 @@ typeFromDecl gmap tdecl = case tdecl of
     error "TODO: Handle predicated types"
 
 
-typeFromName :: String -> InferM Type
+typeFromName :: String -> InferM QualType
 typeFromName name
   | name `elem` builtinTypes =
     -- At the moment, all built-in types have the kind *
-    return $ TCon name Star
+    return $ Qualified [] $ TCon name Star
   | otherwise =
     getStructType name
 
@@ -1062,7 +1084,7 @@ varBind tv@(TyVar _ k) other
   | otherwise =
     return $ Map.singleton (TVar tv) other
 
-getType :: (Annotated a) => a Annotation -> Type
+getType :: (Annotated a) => a Annotation -> QualType
 getType node =
   fromMaybe (error "must be typed") (Anno.getType node)
 
@@ -1093,7 +1115,7 @@ insertAll m [] =
 -- always pick new TGen generics from left to right,
 -- but this is good enough for now.
 schemesEquivalent :: Scheme -> Scheme -> Bool
-schemesEquivalent (Scheme n1 t1) (Scheme n2 t2) =
+schemesEquivalent (Scheme n1 (Qualified _ t1)) (Scheme n2 (Qualified _ t2)) =
   n1 == n2 && genSubstitutes t1 t2
 
 alphaSubstitues :: Type -> Type -> Bool

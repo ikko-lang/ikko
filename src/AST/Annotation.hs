@@ -3,7 +3,7 @@
 module AST.Annotation where
 
 import Region (Region)
-import Types (Type)
+import Types (QualType)
 import Util.DoOnce (evalDoOnce, isFirst)
 
 class (Functor f, Foldable f, Traversable f) => Annotated f where
@@ -31,7 +31,7 @@ emptyAnnotation = []
 
 data Metadata
   = Location Region
-  | Typed Type
+  | Typed QualType
   deriving (Eq, Show)
 
 
@@ -52,18 +52,18 @@ unannotate :: WithAnnotation b a -> b
 unannotate (WithAnnotation _ x) = x
 
 
-addType :: (Annotated a) => Type -> a Annotation -> a Annotation
-addType t =
-  addAnnotation (Typed t)
+addType :: (Annotated a) => QualType -> a Annotation -> a Annotation
+addType qt =
+  addAnnotation (Typed qt)
 
 addLocation :: (Annotated a) => Region -> a Annotation -> a Annotation
 addLocation r =
   addAnnotation (Location r)
 
 
-getType :: (Annotated a) => a Annotation -> Maybe Type
+getType :: (Annotated a) => a Annotation -> Maybe QualType
 getType node =
-  listToMaybe [t | Typed t <- getAnnotation node]
+  listToMaybe [qt | Typed qt <- getAnnotation node]
 
 getLocation :: (Annotated a) => a Annotation -> Maybe Region
 getLocation node =

@@ -28,13 +28,16 @@ import Types
   , Type(..)
   , Kind(..)
   , Substitution
+  , Qualified(..)
+  , asQual
   , simpleType
   , simpleVar
   , makeSub
   , makeFuncType
   , makeVar
   , applyTypes
-  , kindN )
+  , kindN
+  , typeNames )
 import Util.Functions
 
 
@@ -65,8 +68,8 @@ data Constructor =
 
 valueType :: Constructor -> Scheme
 valueType ctor =
-  let (Scheme n (TAp _ ret)) = ctorType ctor
-  in Scheme n ret
+  let (Scheme n (Qualified ps (TAp _ ret))) = ctorType ctor
+  in Scheme n (Qualified ps ret)
 
 -- firstPass is the first thing run after parsing.
 -- It prepares data for type inference.
@@ -164,18 +167,10 @@ checkRefedTypesExist ctors (_, ctor) =
   mapM_ (checkTypeDefined ctors) (concatMap getReferencedType $ ctorFields ctor)
 
 getReferencedType :: (String, Scheme) -> [String]
-getReferencedType (_, Scheme _ t) = filter (not . isBuiltIn) (getTypeNames t)
+getReferencedType (_, Scheme _ t) = filter (not . isBuiltIn) (Set.toList $ typeNames t)
 
 isBuiltIn :: String -> Bool
 isBuiltIn t = t `elem` ["Int", "Float", "Bool", "Char", "String", "()"]
-
-getTypeNames :: Type -> [String]
-getTypeNames t = case t of
-  TCon name _ -> [name]
-  TFunc _ _   -> []
-  TAp a b     -> getTypeNames a ++ getTypeNames b
-  TVar _      -> []
-  TGen _ _    -> []
 
 checkTypeDefined :: Map String a -> String -> Result ()
 checkTypeDefined definitions name =
@@ -213,9 +208,10 @@ makeConstructors ((t,d):ts) constrs = do
       let fieldNames = map fst fields
       fieldTypes <- mapM (convertDecl sub . snd) fields
 
-      let cf = zipWith (\fname ftype -> (fname, Scheme kinds (makeFuncType [typ] ftype))) fieldNames fieldTypes
+      -- TODO: extract this to a function to avoid the long line
+      let cf = zipWith (\fname ftype -> (fname, Scheme kinds (asQual $ makeFuncType [typ] ftype))) fieldNames fieldTypes
 
-      let sch = Scheme kinds (makeFuncType fieldTypes typ)
+      let sch = Scheme kinds (asQual $ makeFuncType fieldTypes typ)
       let ctor = Constructor { ctorFields=cf, ctorType=sch }
       return $ Map.insert name ctor constrs
 
@@ -225,7 +221,7 @@ makeConstructors ((t,d):ts) constrs = do
     T.Enum     _ options ->
       let k = kindN $ length generalized
           typ = applyTypes (TCon name k) generalized
-          sch = Scheme kinds (makeFuncType [] typ)
+          sch = Scheme kinds (asQual $ makeFuncType [] typ)
           ctor = Constructor { ctorFields=[], ctorType=sch }
       in addEnumOptions kinds generalized sub typ options (Map.insert name ctor constrs)
 
@@ -247,9 +243,9 @@ addEnumOptions kinds generalized sub typ ((n,t):os) constrs = do
   let fields = t
   let fieldNames = map fst fields
   fieldTypes <- mapM (convertDecl sub . snd) fields
-  let cf = zipWith (\fn ft -> (fn, Scheme kinds (makeFuncType [typ] ft))) fieldNames fieldTypes
+  let cf = zipWith (\fn ft -> (fn, Scheme kinds (asQual $ makeFuncType [typ] ft))) fieldNames fieldTypes
 
-  let sch = Scheme kinds (makeFuncType fieldTypes typ)
+  let sch = Scheme kinds (asQual $ makeFuncType fieldTypes typ)
   let ctor = Constructor { ctorFields=cf, ctorType=sch }
   addEnumOptions kinds generalized sub typ os (Map.insert n ctor constrs)
 

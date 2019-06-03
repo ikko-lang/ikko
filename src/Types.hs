@@ -46,6 +46,8 @@ type QualType = Qualified Type
 -- e.g. (Show a) => Show [a] for a class implementation
 type QualPred = Qualified Predicate
 
+unqualify :: Qualified t -> t
+unqualify (Qualified _ t) = t
 
 makeVar :: String -> Kind -> Type
 makeVar name k = TVar (TyVar name k)
@@ -136,6 +138,7 @@ instance HasKind TyVar where
 class Types t where
   apply :: Substitution -> t -> t
   freeTypeVars :: t -> Set TyVar
+  typeNames :: t -> Set String
 
 instance Types Type where
   apply sub t = case t of
@@ -152,12 +155,22 @@ instance Types Type where
     TVar tv -> Set.singleton tv
     TGen{}  -> Set.empty
 
+  typeNames t = case t of
+    TCon n _ -> Set.singleton n
+    TFunc{}  -> Set.empty
+    TAp a b  -> Set.union (typeNames a) (typeNames b)
+    TVar{}   -> Set.empty
+    TGen{}   -> Set.empty
+
 instance Types Predicate where
   apply sub (Predicate i t) =
     Predicate i (apply sub t)
 
   freeTypeVars (Predicate _ t) =
     freeTypeVars t
+
+  typeNames (Predicate _ t) =
+    typeNames t
 
 
 instance Types t => Types (Qualified t) where
@@ -167,6 +180,9 @@ instance Types t => Types (Qualified t) where
   freeTypeVars (Qualified ps t) =
     Set.union (freeTypeVars ps) (freeTypeVars t)
 
+  typeNames (Qualified ps t) =
+    Set.union (typeNames ps) (typeNames t)
+
 instance (Types a) => Types [a] where
   apply sub =
     map (apply sub)
@@ -174,17 +190,27 @@ instance (Types a) => Types [a] where
   freeTypeVars ts =
     foldl Set.union Set.empty (map freeTypeVars ts)
 
+  typeNames ts =
+    foldl Set.union Set.empty (map typeNames ts)
+
 
 data Scheme
-  = Scheme [Kind] Type
+  = Scheme [Kind] QualType
   deriving (Eq, Show)
 
 instance Types Scheme where
-  apply sub (Scheme ks t) = Scheme ks (apply sub t)
-  freeTypeVars (Scheme _ t) = freeTypeVars t
+  apply sub    (Scheme ks t) = Scheme ks (apply sub t)
+  freeTypeVars (Scheme _  t) = freeTypeVars t
+  typeNames    (Scheme _  t) = typeNames t
+
+asSchemeQ :: QualType -> Scheme
+asSchemeQ = Scheme []
 
 asScheme :: Type -> Scheme
-asScheme = Scheme []
+asScheme = asSchemeQ . asQual
+
+asQual :: Type -> QualType
+asQual = Qualified []
 
 isGeneric :: Type -> Bool
 isGeneric TGen{} = True
