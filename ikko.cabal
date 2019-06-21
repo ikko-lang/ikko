@@ -89,7 +89,7 @@ executable ikko
 
   -- Base language which the package is written in.
   default-language:    Haskell2010
-  ghc-options:         -Wall
+  ghc-options:         -Wall -j
 
 Test-Suite test-first-pass
     type:    exitcode-stdio-1.0
@@ -97,6 +97,7 @@ Test-Suite test-first-pass
     build-depends: base, containers
     hs-source-dirs:      src
     default-language:    Haskell2010
+    ghc-options:         -j -O0
     other-modules:
                   AST.Annotation,
                   AST.Declaration,
@@ -117,6 +118,7 @@ Test-Suite test-parser
     build-depends: base, containers, parsec, indents >= 0.5
     hs-source-dirs:      src
     default-language:    Haskell2010
+    ghc-options:         -j -O0
     other-modules:
                   AST.Annotation,
                   AST.Declaration,
@@ -136,6 +138,7 @@ Test-Suite test-graph
     build-depends: base, containers, mtl, QuickCheck
     hs-source-dirs:      src
     default-language:    Haskell2010
+    ghc-options:         -j
     other-modules:
                   UnitTest,
                   Util.DoOnce,
@@ -149,6 +152,7 @@ Test-Suite test-infer
     build-depends: base, containers, mtl
     hs-source-dirs:      src
     default-language:    Haskell2010
+    ghc-options:         -j -O0
     other-modules:
                   AST.Annotation,
                   AST.Declaration,
