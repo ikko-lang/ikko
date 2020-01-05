@@ -18,6 +18,8 @@ import Types
   , Type(..)
   , TyVar(..)
   , Scheme(..)
+  , Qualified(..)
+  , QualType
   , applyTypes
   , asScheme
   , composeSubs
@@ -187,10 +189,10 @@ recursiveUnification = do
 
 instantiation :: Assertion
 instantiation = do
-  assertInstantiates (Scheme [] tInt) tInt
-  assertInstantiates (Scheme [Star] tInt) tInt
-  assertInstantiates (Scheme [Star] $ tgenN 1) (tvar "a")
-  let sch2 = Scheme [Star, Star] (makeFuncType [tgenN 1, tgenN 2] (tgenN 2))
+  assertInstantiates (Scheme [] $ Qual [] tInt) tInt
+  assertInstantiates (Scheme [Star] $ Qual []  tInt) tInt
+  assertInstantiates (Scheme [Star] $ Qual []  $ tgenN 1) (tvar "a")
+  let sch2 = Scheme [Star, Star] (Qual [] $ makeFuncType [tgenN 1, tgenN 2] (tgenN 2))
   let t2 = makeFuncType [tvar "a", tvar "b"] (tvar "b")
   assertInstantiates sch2 t2
 
@@ -446,14 +448,14 @@ simpleModule = do
   -- f(n) { return n + 1; }
   let nPlus1 = func "f" ["n"] [returnJust $ E.Binary [] E.Plus varN (intVal 1)]
   let result1 = inferModule $ makeModule [("f", nPlus1)]
-  let intFn = Scheme [] $ makeFuncType [tInt] tInt
+  let intFn = Scheme [] $ Qual []  $ makeFuncType [tInt] tInt
   assertModuleTypes "f" intFn result1
 
   -- Test basic let-polymorphism
   -- id(x) { return x; }
   let identity = func "id" ["x"] [returnJust varX]
   let result2 = inferModule $ makeModule [("id", identity)]
-  let idType = Scheme [Star] $ makeFuncType [tgenN 1] (tgenN 1)
+  let idType = Scheme [Star] $ Qual []  $ makeFuncType [tgenN 1] (tgenN 1)
   assertModuleTypes "id" idType result2
 
   -- Test usage of let-polymorphism
@@ -463,7 +465,7 @@ simpleModule = do
   let idExpr = E.Call [] varID [E.Binary [] E.Greater varN id3]
   let fN = func "f" ["n"] [returnJust idExpr]
   let result3 = inferModule $ makeModule [("f", fN), ("id", identity)]
-  let fNType = Scheme [] $ makeFuncType [tInt] tBool
+  let fNType = Scheme [] $ Qual []  $ makeFuncType [tInt] tBool
   assertModuleTypes "f" fNType result3
   assertModuleTypes "id" idType result3
 
@@ -476,8 +478,8 @@ simpleModule = do
   let idOfX = E.Call [] varID [varX]
   let fCallsID = func "f" ["x"] [returnJust $ E.Binary [] E.Greater idOfX (intVal 2)]
   let result4 = inferModule $ makeModule [("f", fCallsID), ("id", identityCallingF)]
-  let lessGeneralIDType = Scheme [] $ makeFuncType [tInt] tInt
-  let fCallsIDType = Scheme [] $ makeFuncType [tInt] tBool
+  let lessGeneralIDType = Scheme [] $ Qual []  $ makeFuncType [tInt] tInt
+  let fCallsIDType = Scheme [] $ Qual []  $ makeFuncType [tInt] tBool
   assertModuleTypes "f" fCallsIDType result4
   assertModuleTypes "id" lessGeneralIDType result4
 
@@ -613,19 +615,22 @@ containsGenerics t = case t of
 -- expected, result
 assertSchemeUnifies :: Scheme -> Scheme -> Assertion
 assertSchemeUnifies s1@(Scheme n1 _) s2@(Scheme n2 _) = do
-  assertMatches (testInstantiate s1) (testInstantiate s2)
   assertEq n1 n2
+  let (Qual ps1 t1) = testInstantiate s1
+  let (Qual ps2 t2) = testInstantiate s2
+  assertEq ps1 ps2
+  assertMatches t1 t2
 
 
 -- testInstantiate instantiates without the InferM monad available
-testInstantiate :: Scheme -> Type
-testInstantiate (Scheme kinds t) =
+testInstantiate :: Scheme -> QualType
+testInstantiate (Scheme kinds qt) =
   let n = length kinds
       range = [1..n]
       newVars = map TVar $ zipWith TyVar ["-t" ++ show i | i <- range] kinds
       genVars = zipWith TGen range kinds
       sub = Map.fromList $ zip genVars newVars
-  in apply sub t
+  in apply sub qt
 
 
 intVal :: Int -> ExpressionT

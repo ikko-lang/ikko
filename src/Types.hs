@@ -144,7 +144,7 @@ instance (Types a) => Types [a] where
 
 
 data Scheme
-  = Scheme [Kind] Type
+  = Scheme [Kind] QualType
   deriving (Eq, Show)
 
 instance Types Scheme where
@@ -152,7 +152,7 @@ instance Types Scheme where
   freeTypeVars (Scheme _ t) = freeTypeVars t
 
 asScheme :: Type -> Scheme
-asScheme = Scheme []
+asScheme t = Scheme [] (Qual [] t)
 
 isGeneric :: Type -> Bool
 isGeneric TGen{} = True

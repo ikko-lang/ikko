@@ -53,6 +53,7 @@ import Types
   , TyVar(..)
   , Predicate(..)
   , Qualified(..)
+  , QualType
   , makeFuncType
   , makeVar
   , applyTypes
@@ -282,7 +283,7 @@ applyEnv sub = Map.map (apply sub)
 startingEnv :: Environment
 startingEnv =
   Map.fromList
-  [ ("print", Scheme [Star] (makeFuncType [TGen 1 Star] tUnit)) ]
+  [ ("print", Scheme [Star] (Qual [] $ makeFuncType [TGen 1 Star] tUnit)) ]
 
 runInfer :: Monad m => Map String Constructor
          -> StateT InferState m a -> m a
@@ -390,7 +391,7 @@ getExplicitType (name, decl) = case decl of
     gmap <- genericMap gens
     t <- withLocations [decl] $ typeFromDecl gmap tdecl
     let varSet = Set.fromList $ map (`TyVar` Star) gens
-    return (name, generalizeOver varSet t)
+    return (name, generalizeOver varSet $ Qual [] t)
 
   D.TypeDef{} ->
     error "shouldn't see a typedef here"
@@ -445,19 +446,20 @@ inferDecls env decls ts = mapM infer (zip decls ts)
 generalize :: Environment -> Type -> Scheme
 generalize env t =
   let envVars = foldl Set.union Set.empty $ map (freeTypeVars . snd) $ Map.toList env
-  in generalizeOver envVars t
+  in generalizeOver envVars (Qual [] t)
 
-generalizeOver :: Set TyVar -> Type -> Scheme
-generalizeOver envVars t =
-  let varList = Set.toList $ Set.difference (freeTypeVars t) envVars
+generalizeOver :: Set TyVar -> QualType -> Scheme
+generalizeOver envVars qt =
+  let varList = Set.toList $ Set.difference (freeTypeVars qt) envVars
       kinds = map getKind varList
       freeVars = map TVar varList
       genVars = zipWith TGen [1..] kinds
       sub = Map.fromList $ zip freeVars genVars
-  in Scheme kinds (apply sub t)
+  in Scheme kinds (apply sub qt)
 
+-- TODO: Also instantiate predicates
 instantiate :: Scheme -> InferM Type
-instantiate sch@(Scheme kinds t) = do
+instantiate sch@(Scheme kinds (Qual _ t)) = do
   let n = length kinds
   let range = [1..n]
   newVars <- mapM newTypeVar kinds
@@ -1126,7 +1128,7 @@ insertAll m [] =
 -- always pick new TGen generics from left to right,
 -- but this is good enough for now.
 schemesEquivalent :: Scheme -> Scheme -> Bool
-schemesEquivalent (Scheme n1 t1) (Scheme n2 t2) =
+schemesEquivalent (Scheme n1 (Qual _ t1)) (Scheme n2 (Qual _ t2)) =
   n1 == n2 && genSubstitutes t1 t2
 
 alphaSubstitues :: Type -> Type -> Bool
@@ -1306,7 +1308,7 @@ candidates ce (v, qs) =
   let pairs = [ (i, t) | Pred i t <- qs ]
       classes = map fst pairs
       types = map snd pairs
-      allTypesMatch = all ((TVar v) ==) types
+      allTypesMatch = all (TVar v ==) types
       anyNumClass = any (`elem` numClasses) classes
       allStdClass = all (`elem` stdClasses) classes
   in if allTypesMatch && anyNumClass && allStdClass
@@ -1325,7 +1327,7 @@ getDefaults ce vs ps =
 defaultedPreds :: ClassEnv -> Set TyVar -> [Predicate] -> InferM [Predicate]
 defaultedPreds ce vs ps = do
   (vps, _) <- getDefaults ce vs ps
-  return $ concat (map snd vps)
+  return $ concatMap snd vps
 
 -- returns (deferred, retained) predicates
 split :: ClassEnv -> Set TyVar -> Set TyVar -> [Predicate] -> InferM ([Predicate], [Predicate])
@@ -1334,3 +1336,5 @@ split ce fs gs ps = do
   let (ds, rs) = partition (\p -> Set.isSubsetOf (freeTypeVars p) fs) ps'
   rs' <- defaultedPreds ce (Set.union fs gs) rs
   return (ds, rs \\ rs')
+
+-- no monomorphism restriction?
