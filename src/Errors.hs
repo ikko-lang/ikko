@@ -27,6 +27,7 @@ data Error
   | MissingReturn String -- function name
   | WithLocations [Region] Error -- wrap another error, adding a location
   | ContextReduction Predicate
+  | Ambiguity [Predicate]
   deriving (Show, Eq)
 
 type Result a = Either Error a

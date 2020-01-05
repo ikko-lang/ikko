@@ -28,6 +28,7 @@ import qualified Data.Map as Map
 import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Maybe (isJust)
+import Data.List ((\\), partition)
 
 --import Debug.Trace
 
@@ -1284,3 +1285,52 @@ reduce :: ClassEnv -> [Predicate] -> InferM [Predicate]
 reduce ce ps = do
   qs <- toHNFs ce ps
   return $ simplify ce qs
+
+type Ambiguity = (TyVar, [Predicate])
+
+ambiguities :: ClassEnv -> Set TyVar -> [Predicate] -> [Ambiguity]
+ambiguities ce vs ps =
+  [ (v, filter (Set.member v . freeTypeVars) ps)
+  | v <- Set.toList $ Set.difference (freeTypeVars ps) vs ]
+
+numClasses :: [String]
+numClasses  = ["Num", "Integral", "Floating", "Fractional",
+               "Real", "RealFloat", "RealFrac"]
+
+stdClasses :: [String]
+stdClasses  = ["Eq", "Ord", "Show", "Read", "Bounded", "Enum", "Ix",
+               "Functor", "Monad", "MonadPlus"] ++ numClasses
+
+candidates :: ClassEnv -> Ambiguity -> [Type]
+candidates ce (v, qs) =
+  let pairs = [ (i, t) | Pred i t <- qs ]
+      classes = map fst pairs
+      types = map snd pairs
+      allTypesMatch = all ((TVar v) ==) types
+      anyNumClass = any (`elem` numClasses) classes
+      allStdClass = all (`elem` stdClasses) classes
+  in if allTypesMatch && anyNumClass && allStdClass
+     then [ t' | t' <- defaults ce,
+            all (entail ce []) [Pred i t' | i <- classes] ]
+     else []
+
+getDefaults :: ClassEnv -> Set TyVar -> [Predicate] -> InferM ([Ambiguity], [Type])
+getDefaults ce vs ps =
+  let vps = ambiguities ce vs ps
+      tss = map (candidates ce) vps
+  in if any null tss
+     then inferErr $ Ambiguity ps
+     else return (vps, map head tss)
+
+defaultedPreds :: ClassEnv -> Set TyVar -> [Predicate] -> InferM [Predicate]
+defaultedPreds ce vs ps = do
+  (vps, _) <- getDefaults ce vs ps
+  return $ concat (map snd vps)
+
+-- returns (deferred, retained) predicates
+split :: ClassEnv -> Set TyVar -> Set TyVar -> [Predicate] -> InferM ([Predicate], [Predicate])
+split ce fs gs ps = do
+  ps' <- reduce ce ps
+  let (ds, rs) = partition (\p -> Set.isSubsetOf (freeTypeVars p) fs) ps'
+  rs' <- defaultedPreds ce (Set.union fs gs) rs
+  return (ds, rs \\ rs')
