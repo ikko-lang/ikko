@@ -31,7 +31,7 @@ import Data.Maybe (isJust)
 
 --import Debug.Trace
 
-import Control.Monad (when, foldM, zipWithM)
+import Control.Monad (when, foldM, zipWithM, msum)
 import Control.Monad.State (StateT, modify, get, gets, put, lift, evalStateT, mapStateT)
 
 
@@ -51,6 +51,7 @@ import Types
   , Kind(..)
   , TyVar(..)
   , Predicate(..)
+  , Qualified(..)
   , makeFuncType
   , makeVar
   , applyTypes
@@ -1207,3 +1208,79 @@ require False = Nothing
 
 requireEq :: (Eq a) => a -> a -> Maybe ()
 requireEq a b = require $ a == b
+
+type Inst = Qualified Predicate
+
+data Class
+  = Class
+  { superclasses :: [String]
+  , instances :: [Inst] }
+  deriving (Eq, Show)
+
+data ClassEnv
+  = ClassEnv
+  { classes :: Map String Class
+  , defaults :: [Type] }
+  deriving (Eq, Show)
+
+mustClass :: ClassEnv -> String -> Class
+mustClass ce cls =
+  case Map.lookup cls (classes ce) of
+    Just c -> c
+
+super :: ClassEnv -> String -> [String]
+super ce cls = superclasses $ mustClass ce cls
+
+insts :: ClassEnv -> String -> [Inst]
+insts ce cls = instances $ mustClass ce cls
+
+bySuper :: ClassEnv -> Predicate -> [Predicate]
+bySuper ce p@(Pred i t)
+  = p : concat [ bySuper ce (Pred i' t) | i' <- super ce i ]
+
+byInst :: ClassEnv -> Predicate -> Maybe [Predicate]
+byInst ce p@(Pred i t) = msum [ tryInst it | it <- insts ce i ]
+  where tryInst (Qual ps h) = do
+          u <- predsMatch h p
+          Just (map (apply u) ps)
+
+-- Assuming all of ps are true, does that mean we know that p is also true?
+entail :: ClassEnv -> [Predicate] -> Predicate -> Bool
+entail ce ps p =
+  let isSuperClass = any (p `elem`) (map (bySuper ce) ps)
+      matchingInstanceEntailed = case byInst ce p of
+        Nothing -> False
+        Just qs -> all (entail ce ps) qs
+  in isSuperClass || matchingInstanceEntailed
+
+-- remove redundant predicates, e.g. [Eq a, Ord a, Ord a] --> [Ord a]
+simplify :: ClassEnv -> [Predicate] -> [Predicate]
+simplify ce = loop []
+  where loop rs [] = rs
+        loop rs (p:ps) =
+          if entail ce (rs++ps) p
+          then loop rs ps
+          else loop (p:rs) ps
+
+inHNF :: Predicate -> Bool
+inHNF (Pred _ t) = hnf t
+  where hnf (TVar _)  = True
+        hnf (TAp l _) = hnf l
+        hnf _         = False
+
+toHNFs :: ClassEnv -> [Predicate] -> InferM [Predicate]
+toHNFs ce ps = do
+  pss <- mapM (toHNF ce) ps
+  return $ concat pss
+
+toHNF :: ClassEnv -> Predicate -> InferM [Predicate]
+toHNF ce p
+  | inHNF p   = return [p]
+  | otherwise = case byInst ce p of
+      Nothing -> inferErr $ ContextReduction p
+      Just ps -> toHNFs ce ps
+
+reduce :: ClassEnv -> [Predicate] -> InferM [Predicate]
+reduce ce ps = do
+  qs <- toHNFs ce ps
+  return $ simplify ce qs

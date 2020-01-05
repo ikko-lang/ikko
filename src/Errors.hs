@@ -3,7 +3,7 @@ module Errors where
 import Data.List (intercalate)
 
 import Region
-import Types (Type, Kind, TyVar, prettyPrint)
+import Types (Type, Kind, TyVar, Predicate, prettyPrint)
 
 data Error
   = Mismatch Type Type
@@ -26,6 +26,7 @@ data Error
   | Unreachable String -- function name
   | MissingReturn String -- function name
   | WithLocations [Region] Error -- wrap another error, adding a location
+  | ContextReduction Predicate
   deriving (Show, Eq)
 
 type Result a = Either Error a
