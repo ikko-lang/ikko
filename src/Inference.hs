@@ -50,6 +50,7 @@ import Types
   , Type(..)
   , Kind(..)
   , TyVar(..)
+  , Predicate(..)
   , makeFuncType
   , makeVar
   , applyTypes
@@ -1047,6 +1048,50 @@ varBind tv@(TyVar _ k) other
     Left $ KindMismatch tv k (getKind other)
   | otherwise =
     return $ Map.singleton (TVar tv) other
+
+
+predsMatch :: Predicate -> Predicate -> Maybe Substitution
+predsMatch (Pred c1 t1) (Pred c2 t2) =
+  if c1 == c2
+  then matches t1 t2
+  else Nothing
+
+matches :: Type -> Type -> Maybe Substitution
+matches t1 t2 = case (t1, t2) of
+  (TGen _ _, _) ->
+    error $ "A generic variable should have been instantiated in matches: " ++ show (t1, t2)
+  (_, TGen _ _) ->
+    error $ "A generic variable should have been instantiated in matches: " ++ show (t1, t2)
+
+  (TFunc n1 _, TFunc n2 _) ->
+    if n1 == n2
+    then return emptySubstitution
+    else Nothing
+
+  (TCon ac ak, TCon bc bk) ->
+    if ac == bc && ak == bk
+    then return emptySubstitution
+    else Nothing
+
+  (TAp a1 b1, TAp a2 b2) -> do
+    sub1 <- matches a1 a2
+    sub2 <- matches b1 b2
+    merge sub1 sub2
+
+  (TVar _, other) ->
+    return $ Map.singleton t1 other
+
+  _ ->
+    Nothing
+
+merge :: Substitution -> Substitution -> Maybe Substitution
+merge s1 s2 =
+  let agrees k v = case Map.lookup k s2 of
+        Nothing -> True
+        Just v2 -> v == v2
+  in if all (uncurry agrees) (Map.toList s1)
+     then return $ Map.union s1 s2
+     else Nothing
 
 getType :: (Annotated a) => a Annotation -> Type
 getType node =
