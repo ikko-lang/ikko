@@ -10,7 +10,8 @@ import qualified AST.Statement as S
 import qualified AST.Type as T
 
 import FirstPass
-  ( Module(..) )
+  ( Module(..)
+  , makeClassEnv )
 
 import Types
   ( Substitution
@@ -546,7 +547,7 @@ returnJust expr = S.Return [] (Just expr)
 
 
 assertExprTypes :: Type -> ExpressionT -> Assertion
-assertExprTypes t expr = assertTypes t expr inferExpr
+assertExprTypes t expr = assertTypes2 t expr inferExpr
 
 
 assertExprFails :: ExpressionT -> Assertion
@@ -559,6 +560,14 @@ assertDeclTypes t decl = assertTypes t decl inferDecl
 
 assertDeclFails :: DeclarationT -> Assertion
 assertDeclFails decl = assertFails decl inferDecl
+
+
+assertTypes2 t ast inferFn = do
+  let result = inferEmpty $ inferFn startingEnv ast
+  assertRight result
+  let (Right (typed, _)) = result
+  let (Just resultType) = getType typed
+  assertMatches t resultType
 
 
 assertTypes t ast inferFn = do
@@ -594,7 +603,7 @@ runInstantiate sch =
   let (Right result) = inferEmpty (instantiate sch)
   in result
 
-inferEmpty = runInfer Map.empty
+inferEmpty = runInfer Map.empty makeClassEnv
 
 
 assertNoGenerics :: Type -> Assertion

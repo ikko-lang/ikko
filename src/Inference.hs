@@ -112,7 +112,8 @@ inferModule :: Module -> Result InferResult
 inferModule m = do
   let bindGroup = makeBindGroup m
   let ctors = constructors m
-  (binds, env) <- runInfer ctors $ inferBindGroup bindGroup startingEnv
+  let ce = classEnv m
+  (binds, env) <- runInfer ctors ce $ inferBindGroup bindGroup startingEnv
   return InferResult { topLevelBindings=binds, topLevelEnv=env }
 
 makeBindGroup :: Module -> BindGroup
@@ -258,15 +259,17 @@ data InferState
   = InferState
     { nextVarN :: Int
     , currentSub :: Substitution
-    , constrs :: CTors }
+    , constrs :: CTors
+    , cenv :: ClassEnv }
   deriving (Show)
 
-startingInferState :: CTors -> InferState
-startingInferState ctors =
+startingInferState :: CTors -> ClassEnv -> InferState
+startingInferState ctors ce =
   InferState
   { nextVarN = 0
   , currentSub = Map.empty
-  , constrs = ctors }
+  , constrs = ctors
+  , cenv = ce }
 
 -- `Either Error` = `Result`, but somehow that
 -- type synonym isn't allowed here.
@@ -289,9 +292,9 @@ startingEnv =
   [ ("print", Scheme [Star] (Qual [] $ makeFuncType [TGen 1 Star] tUnit)) ]
 
 runInfer :: Monad m => Map String Constructor
-         -> StateT InferState m a -> m a
-runInfer ctors f =
-  evalStateT f (startingInferState ctors)
+         -> ClassEnv -> StateT InferState m a -> m a
+runInfer ctors ce f =
+  evalStateT f (startingInferState ctors ce)
 
 inferErr :: Error -> InferM a
 inferErr err = lift $ Left err
@@ -491,8 +494,7 @@ containsGenerics t = case t of
 inferDecl :: Environment -> DeclarationT -> InferM DeclarationT
 inferDecl env decl = case decl of
   D.Let a name mtype expr -> do
-    expr' <- inferExpr env expr
-    let t = getType expr'
+    (expr', t) <- inferExpr env expr
     return $ addType t $ D.Let a name mtype expr'
 
   D.Function a name mtype args stmt -> do
@@ -528,7 +530,7 @@ inferStmt env stmt = case stmt of
   S.Return a Nothing ->
     return (S.Return a Nothing, AlwaysReturns [tUnit])
   S.Return a (Just expr) -> do
-    expr' <- inferExpr env expr
+    (expr', _) <- inferExpr env expr
     return (S.Return a (Just expr'), AlwaysReturns [getType expr'])
 
   S.Let a name mtype expr -> do
@@ -536,7 +538,7 @@ inferStmt env stmt = case stmt of
     -- Note that in recursive bindings, if the bound expression involves a
     -- closure, I need to think about whether that closure should be allowed to
     -- assign back to this variable
-    expr' <- inferExpr env expr
+    (expr', _) <- inferExpr env expr
     case mtype of
       Nothing    -> return()
       Just tdecl -> do
@@ -551,8 +553,7 @@ inferStmt env stmt = case stmt of
      [var] -> do
        -- Something to think about: Should this be required to be a variable
        -- defined in a `let` statement instead of an argument to a function?
-       expr' <- inferExpr env expr
-       let exprT = getType expr'
+       (expr', exprT) <- inferExpr env expr
        sch <- withLocations [stmt] $ lookupName var env
        varT <- instantiate sch
        -- TODO: not quite right, since this may result in too narrow of a type
@@ -560,8 +561,7 @@ inferStmt env stmt = case stmt of
        withLocations [stmt] $ unify exprT varT
        return (S.Assign a names expr', NeverReturns)
      (var:fields) -> do
-       expr' <- inferExpr env expr
-       let exprT = getType expr'
+       (expr', exprT) <- inferExpr env expr
 
        sch <- withLocations [stmt] $ lookupName var env
        -- Is it right for this to be working on an instantiation of sch?
@@ -576,11 +576,11 @@ inferStmt env stmt = case stmt of
     return (S.Block a stmts', retT)
 
   S.Expr a expr -> do
-    expr' <- inferExpr env expr
+    (expr', _) <- inferExpr env expr
     return (S.Expr a expr', NeverReturns)
 
   S.If a test blk els -> do
-    testExpr <- inferExpr env test
+    (testExpr, _) <- inferExpr env test
     withLocations [testExpr] $ unify (getType testExpr) tBool
     (blk', blkReturns) <- inferBlock env blk
     (els', elsReturns) <- case els of
@@ -593,15 +593,14 @@ inferStmt env stmt = case stmt of
     return (S.If a testExpr blk' els', ifReturns)
 
   S.While a test blk -> do
-    testExpr <- inferExpr env test
+    (testExpr, _) <- inferExpr env test
     withLocations [testExpr] $ unify (getType testExpr) tBool
     (blk', blkReturns) <- inferBlock env blk
     let whileReturns = demoteReturns blkReturns
     return (S.While a testExpr blk', whileReturns)
 
   S.Match a expr cases -> do
-    expr' <- inferExpr env expr
-    let exprType = getType expr'
+    (expr', exprType) <- inferExpr env expr
     casesAndReturns <- mapM (inferMatchCase env exprType) cases
     let (cases', returns) = unzip casesAndReturns
     let resultType = getType (head cases')
@@ -759,82 +758,75 @@ toFunctionReturns ds                 =
   tUnit : getReturnTypes ds
 
 
-inferExpr :: Environment -> ExpressionT -> InferM ExpressionT
+inferExpr :: Environment -> ExpressionT -> InferM (ExpressionT, Type)
 inferExpr env expr = case expr of
   E.Paren a e -> do
-    e' <- inferExpr env e
-    let t = getType e'
-    return $ addType t $ E.Paren a e'
+    (e', t) <- inferExpr env e
+    return (addType t $ E.Paren a e', t)
 
   E.Val a val -> do
-    val' <- inferValue env val
-    let t = getType val'
-    return $ addType t $ E.Val a val'
+    (val', t) <- inferValue env val
+    return (addType t $ E.Val a val', t)
 
   E.Unary a op exp -> do
     resultT <- newStarVar
-    exp' <- inferExpr env exp
-    let expT = getType exp'
+    (exp', expT) <- inferExpr env exp
     let fnT = getUnaryFnType op
     withLocations [expr] $ unify fnT (makeFuncType [expT] resultT)
     sub <- getSub
     let t = apply sub resultT
-    return $ addType t $ E.Unary a op exp'
+    return (addType t $ E.Unary a op exp', t)
 
   E.Binary a op l r -> do
     resultT <- newStarVar
-    l' <- inferExpr env l
-    let lt = getType l'
-    r' <- inferExpr env r
-    let rt = getType r'
+    (l', lt) <- inferExpr env l
+    (r', rt) <- inferExpr env r
     let fnT = getBinaryFnType op
     withLocations [expr] $ unify fnT (makeFuncType [lt, rt] resultT)
     sub <- getSub
     let t = apply sub resultT
-    return $ addType t $ E.Binary a op l' r'
+    return (addType t $ E.Binary a op l' r', t)
 
   E.Call a fexp args -> do
     resultT <- newStarVar
-    fexp' <- inferExpr env fexp
-    let ft = getType fexp'
-    args' <- mapM (inferExpr env) args
-    let argTs = map getType args'
+    (fexp', ft) <- inferExpr env fexp
+    typedArgs <- mapM (inferExpr env) args
+    let (args', argTs) = unzip typedArgs
     withLocations [expr] $ unify ft (makeFuncType argTs resultT)
     sub <- getSub
     let t = apply sub resultT
-    return $ addType t $ E.Call a fexp' args'
+    return (addType t $ E.Call a fexp' args', t)
 
   E.Cast a t exp -> do
-    exp' <- inferExpr env exp
-    let expT = getType exp'
+    (exp', expT) <- inferExpr env exp
     sch <- withLocations [expr] $ attemptCast t expT
-    return $ addType sch $ E.Cast a t exp'
+    return (addType sch $ E.Cast a t exp', sch)
 
   E.Var a name -> do
     sch <- withLocations [expr] $ lookupName name env
     t <- instantiate sch
-    return $ addType t $ E.Var a name
+    return (addType t $ E.Var a name, t)
 
   E.Access a exp field -> do
-    exp' <- inferExpr env exp
+    (exp', et) <- inferExpr env exp
     sub <- getSub
-    let etype = apply sub $ getType exp'
+    let etype = apply sub et
     t <- withLocations [expr] $ getStructFieldType etype field
-    return $ addType t $ E.Access a exp' field
+    return (addType t $ E.Access a exp' field, t)
 
-inferValue :: Environment -> ValueT -> InferM ValueT
+inferValue :: Environment -> ValueT -> InferM (ValueT, Type)
 inferValue env val = case val of
   E.StrVal a str ->
-    return $ addType tString $ E.StrVal a str
+    return (addType tString $ E.StrVal a str, tString)
 
   E.BoolVal a b ->
-    return $ addType tBool $ E.BoolVal a b
+    return (addType tBool $ E.BoolVal a b, tBool)
 
   E.IntVal a i ->
-    return $ addType tInt $ E.IntVal a i
+    return (addType tInt $ E.IntVal a i, tInt)
 
   E.FloatVal a f ->
-    return $ addType tFloat $ E.FloatVal a f
+    return (addType tFloat $ E.FloatVal a f, tFloat)
 
   E.StructVal a tname fields  -> do
     resultT <- newStarVar
@@ -848,7 +840,7 @@ inferValue env val = case val of
     -- This allows typing to ignore field order.
     let sorted = orderAs fieldNamesInType fields
     typedFields <- mapM (inferExpr env . snd) sorted
-    let fieldTypes = map getType typedFields
+    let fieldTypes = map snd typedFields
 
     -- Unify that with the "function" type of the struct's constructor
     withLocations [val] $ unify fnT (makeFuncType fieldTypes resultT)
@@ -858,10 +850,10 @@ inferValue env val = case val of
 
     -- Finally, put the fields back in the right order since the order is
     -- significant in evaluation
-    let namedTypedFields = zip (map fst sorted) typedFields
+    let namedTypedFields = zip (map fst sorted) (map fst typedFields)
     let orderedFields = orderAs (map fst fields) namedTypedFields
 
-    return $ addType t $ E.StructVal a tname orderedFields
+    return (addType t $ E.StructVal a tname orderedFields, t)
 
 
 orderAs :: (Ord a) => [a] -> [(a, b)] -> [(a, b)]
