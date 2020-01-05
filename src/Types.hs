@@ -229,3 +229,17 @@ instance Instantiate Predicate where
 
 instance Instantiate t => Instantiate (Qualified t) where
   instantiate ts (Qual ps t) = Qual (instantiate ts ps) (instantiate ts t)
+
+type Inst = Qualified Predicate
+
+data Class
+  = Class
+  { superclasses :: [String]
+  , instances :: [Inst] }
+  deriving (Eq, Show)
+
+data ClassEnv
+  = ClassEnv
+  { classes :: Map String Class
+  , defaults :: [Type] }
+  deriving (Eq, Show)

@@ -54,6 +54,9 @@ import Types
   , Predicate(..)
   , Qualified(..)
   , QualType
+  , Inst
+  , Class(..)
+  , ClassEnv(..)
   , makeFuncType
   , makeVar
   , applyTypes
@@ -1211,20 +1214,6 @@ require False = Nothing
 
 requireEq :: (Eq a) => a -> a -> Maybe ()
 requireEq a b = require $ a == b
-
-type Inst = Qualified Predicate
-
-data Class
-  = Class
-  { superclasses :: [String]
-  , instances :: [Inst] }
-  deriving (Eq, Show)
-
-data ClassEnv
-  = ClassEnv
-  { classes :: Map String Class
-  , defaults :: [Type] }
-  deriving (Eq, Show)
 
 mustClass :: ClassEnv -> String -> Class
 mustClass ce cls =

@@ -26,13 +26,23 @@ import Types
   , Kind(..)
   , Substitution
   , Qualified(..)
+  , Predicate(..)
+  , Inst
+  , Class(..)
+  , ClassEnv(..)
   , simpleType
   , simpleVar
   , makeSub
   , makeFuncType
   , makeVar
   , applyTypes
-  , kindN )
+  , kindN
+  , tInt
+  , tFloat
+  , tBool
+  , tChar
+  , tString
+  , tUnit )
 import Util.Functions
 
 
@@ -50,6 +60,7 @@ data Module =
   Module
   { bindings :: Map String DeclarationT
   , constructors :: Map String Constructor
+  , classEnv :: ClassEnv
   }
   deriving (Show)
 
@@ -84,8 +95,36 @@ firstPass file = do
   mapM_ checkReturns binds
   mapM_ checkDupVars binds
 
-  return Module { bindings=binds, constructors=ctors }
+  -- TODO: add classes and instances from the file
+  let ce = makeClassEnv
 
+  return Module
+    { bindings=binds
+    , constructors=ctors
+    , classEnv=ce }
+
+makeInst :: String -> Type -> Inst
+makeInst c t = Qual [] (Pred c t)
+
+makeClassEnv :: ClassEnv
+makeClassEnv =
+  let classes = Map.fromList
+        [ ("Eq",   Class
+                   { superclasses=[]
+                   , instances=map (makeInst "Eq") [tUnit, tFloat, tChar, tString, tUnit] })
+        , ("Ord",  Class
+                   { superclasses=["Eq"]
+                   , instances=map (makeInst "Ord") [tUnit, tFloat, tChar, tString, tUnit] })
+        , ("Show", Class
+                   { superclasses=[]
+                   , instances=map (makeInst "Show") [tUnit, tFloat, tChar, tString, tUnit] })
+        , ("Num",  Class
+                   { superclasses=["Eq", "Show"]
+                   , instances=map (makeInst "Num") [tInt, tFloat] })
+        ]
+  in ClassEnv
+     { classes=classes,
+       defaults=[tInt, tFloat] }
 
 type DeclMap = Map String DeclarationT
 
