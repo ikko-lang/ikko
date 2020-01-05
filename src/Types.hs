@@ -190,3 +190,42 @@ prettyPrintAp t =
   let (c, ts) = unApplyTypes t
       gens = intercalate ", " $ map prettyPrint ts
   in prettyPrint c ++ "<" ++ gens ++ ">"
+
+data Predicate
+  = Pred String Type -- e.g. (Num a)
+  deriving (Eq, Show)
+
+data Qualified t
+  = Qual [Predicate] t
+  deriving (Eq, Show)
+
+type QualType = Qualified Type
+
+qualify :: Type -> QualType
+qualify = Qual []
+
+instance Types Predicate where
+  apply sub (Pred s t) = Pred s (apply sub t)
+  freeTypeVars (Pred _ t) = freeTypeVars t
+
+instance (Types t) => Types (Qualified t) where
+  apply sub (Qual ps t) = Qual (apply sub ps) (apply sub t)
+  freeTypeVars (Qual ps t) = Set.union (freeTypeVars t) (freeTypeVars ps)
+
+class Instantiate t where
+  instantiate :: [Type] -> t -> t
+
+instance Instantiate Type where
+  instantiate ts t = case t of
+    TGen i _ -> ts !! i
+    TAp l r  -> TAp (instantiate ts l) (instantiate ts r)
+    _        -> t
+
+instance Instantiate a => Instantiate [a] where
+  instantiate ts = map (instantiate ts)
+
+instance Instantiate Predicate where
+  instantiate ts (Pred s t) = Pred s (instantiate ts t)
+
+instance Instantiate t => Instantiate (Qualified t) where
+  instantiate ts (Qual ps t) = Qual (instantiate ts ps) (instantiate ts t)
