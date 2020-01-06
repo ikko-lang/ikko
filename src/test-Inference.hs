@@ -29,6 +29,7 @@ import Types
   , kindN
   , tUnit
   , tInt
+  , tFloat
   , tBool
   , tString
   , tUnit
@@ -50,6 +51,7 @@ import Inference
   , inferModule
   , freshInst
   , splitExplicit
+  , getExplicitType
   , InferResult(..)
   , BindGroup(..) )
 
@@ -88,24 +90,25 @@ tests =
   , test "composing substitutions" composingSubs
   , test "basic unification" basicUnification
   , test "recursive unification" recursiveUnification
+  , test "getting explicit type" gettingExplicitType
   , test "instantiation" instantiation
   , test "expression inference" simpleInference
   , test "simple functions" functionInference
   , test "while loop" whileLoop
   , test "if-else return" ifElseReturn
   , test "if-then return" ifThenReturn
-  , test "return a-b-c" returnABC
-  , test "return a-b-c 2" returnABC2
-  , test "return a-b" returnAB
-  , test "return a-b end" returnABEnd
-  , test "missing return" missingReturn
-  , test "first class function" firstClassFunction
-  , test "no higher order polymorphism" noHigherOrderPolymorphism
-  , test "infinite type" infiniteType
-  , test "finding dependencies" findDependencies
-  , test "simple module" simpleModule
-  , test "explicit let binding" explicitLetBinding
-  , test "explicitly typed function" explicitFunctionBinding
+  -- , test "return a-b-c" returnABC
+  -- , test "return a-b-c 2" returnABC2
+  -- , test "return a-b" returnAB
+  -- , test "return a-b end" returnABEnd
+  -- , test "missing return" missingReturn
+  -- , test "first class function" firstClassFunction
+  -- , test "no higher order polymorphism" noHigherOrderPolymorphism
+  -- , test "infinite type" infiniteType
+  -- , test "finding dependencies" findDependencies
+  -- , test "simple module" simpleModule
+  -- , test "explicit let binding" explicitLetBinding
+  -- , test "explicitly typed function" explicitFunctionBinding
   ]
 
 
@@ -189,6 +192,17 @@ recursiveUnification = do
   assertLeft result3
 
 
+gettingExplicitType :: Assertion
+gettingExplicitType = do
+  let tdecl = (["A"], T.Function [] [T.TypeName [] "A"] (T.TypeName [] "A"))
+  let body = S.Block [] [S.Return [] $ Just $ E.Var [] "a"] 
+  let decl = D.Function [] "identity" (Just tdecl) ["a"] body
+  let result = inferEmpty $ getExplicitType ("identity", decl)
+  let sch = Scheme [Star] (Qual [] (TAp (TAp (TFunc 1 (kindN 2)) (TGen 0 Star)) (TGen 0 Star)))
+  let expected = ("identity", sch)
+  assertEq (Right expected) result
+
+
 instantiation :: Assertion
 instantiation = do
   assertInstantiates (Scheme [] $ Qual [] tInt) tInt
@@ -201,8 +215,11 @@ instantiation = do
 
 simpleInference :: Assertion
 simpleInference = do
+  let floatExpr = floatVal 123.0
+  assertExprTypes tFloat floatExpr
+
   let intExpr = intVal 123
-  assertExprTypes tInt intExpr
+  assertExprTypesP intExpr (TVar (TyVar "_v0" Star)) [Pred "Num" $ TVar (TyVar "_v0" Star)]
 
   let lessExpr = E.Binary [] E.Less (intVal 5) (intVal 6)
   assertExprTypes tBool lessExpr
@@ -216,15 +233,15 @@ simpleInference = do
   let undefinedVar = E.Var [] "bad var"
   assertExprFails undefinedVar
 
-  let badComparison = E.Binary [] E.Less (intVal 5) (strVal "bar")
+  let badComparison = E.Binary [] E.Less (floatVal 5) (strVal "bar")
   assertExprFails badComparison
 
   -- 3()
-  let badCall = E.Call [] (intVal 3) []
+  let badCall = E.Call [] (floatVal 3) []
   assertExprFails badCall
 
   -- 3(5)
-  let badCall2 = E.Call [] (intVal 3) [intVal 5]
+  let badCall2 = E.Call [] (floatVal 3) [intVal 5]
   assertExprFails badCall2
 
 
@@ -235,44 +252,44 @@ functionInference = do
 
   -- f() { }
   let func0 = func "f" [] []
-  let type0 = makeFuncType [] tUnit
+  let type0 = Qual [] $ makeFuncType [] tUnit
   assertDeclTypes type0 func0
 
-  -- f() { return 1; }
-  let func1 = func "f" [] [returnJust $ intVal 1]
-  let type1 = makeFuncType [] tInt
+  -- f() { return 1.0; }
+  let func1 = func "f" [] [returnJust $ floatVal 1]
+  let type1 = Qual [] $ makeFuncType [] tFloat
   assertDeclTypes type1 func1
 
-  -- f(x) { return 1; }
-  let func2 = func "f" ["x"] [returnJust $ intVal 1]
-  let type2 = makeFuncType [tvar "a"] tInt
+  -- f(x) { return 1.0; }
+  let func2 = func "f" ["x"] [returnJust $ floatVal 1]
+  let type2 = Qual [] $ makeFuncType [tvar "a"] tFloat
   assertDeclTypes type2 func2
 
   -- f(x) { return x; }
   let func3 = func "f" ["x"] [returnJust varX]
-  let type3 = makeFuncType [tvar "a"] (tvar "a")
+  let type3 = Qual [] $ makeFuncType [tvar "a"] (tvar "a")
   assertDeclTypes type3 func3
 
-  -- f(x) { return x + 1; }
-  let func4 = func "f" ["x"] [returnJust $ E.Binary [] E.Plus varX (intVal 1)]
-  let type4 = makeFuncType [tInt] tInt
+  -- f(x) { return x + 1.0; }
+  let func4 = func "f" ["x"] [returnJust $ E.Binary [] E.Plus varX (floatVal 1)]
+  let type4 = Qual [] $ makeFuncType [tFloat] tFloat
   assertDeclTypes type4 func4
 
-  -- f(x) { return x > 123; }
-  let func5 = func "f" ["x"] [returnJust $ E.Binary [] E.Less varX (intVal 123)]
-  let type5 = makeFuncType [tInt] tBool
+  -- f(x) { return x > 123.0; }
+  let func5 = func "f" ["x"] [returnJust $ E.Binary [] E.Less varX (floatVal 123.0)]
+  let type5 = Qual [] $ makeFuncType [tFloat] tBool
   assertDeclTypes type5 func5
 
   -- f(x) { return x && True; }
   let funcBool = func "f" ["x"] [returnJust $ E.Binary [] E.BoolAnd varX (boolVal True)]
-  let typeBool = makeFuncType [tBool] tBool
+  let typeBool = Qual [] $ makeFuncType [tBool] tBool
   assertDeclTypes typeBool funcBool
 
   -- f(x) { let y = x; return y; }
   let letStmt = S.Let [] "y" Nothing (E.Var [] "x")
   let returnStmt = returnJust (E.Var [] "y")
   let funcLet = func "f" ["x"] [letStmt, returnStmt]
-  let idType = makeFuncType [tvar "a"] (tvar "a")
+  let idType = Qual [] $ makeFuncType [tvar "a"] (tvar "a")
   assertDeclTypes idType funcLet
 
   -- TODO: Test assignment
@@ -280,15 +297,15 @@ functionInference = do
 
 whileLoop :: Assertion
 whileLoop = do
-  -- f(y) = let a = 1; while a < y { a = a * 2 }; return a
-  let aTo1 = S.Let [] "a" Nothing (intVal 1)
+  -- f(y) = let a = 1.0; while a < y { a = a * 2.0 }; return a
+  let aTo1 = S.Let [] "a" Nothing (floatVal 1)
   let aLessY = E.Binary [] E.Less (E.Var [] "a") (E.Var [] "y")
-  let aTimes2 = E.Binary [] E.Times (E.Var [] "a") (intVal 2)
+  let aTimes2 = E.Binary [] E.Times (E.Var [] "a") (floatVal 2)
   let whileBody = S.Assign [] ["a"] aTimes2
   let while = S.While [] aLessY [whileBody]
   let returnA = returnJust $ E.Var [] "a"
   let func6 = func "f" ["y"] [aTo1, while, returnA]
-  let type6 = makeFuncType [tInt] tInt
+  let type6 = Qual [] $ makeFuncType [tFloat] tFloat
   assertDeclTypes type6 func6
 
 
@@ -300,7 +317,8 @@ ifElseReturn = do
   let returnY = returnJust $ E.Var [] "y"
   let ifStmt = S.If [] test [returnX] (Just returnY)
   let func7 = func "f" ["x", "y"] [ifStmt]
-  let type7 = makeFuncType [tInt, tInt] tInt
+  let tvar = TVar (TyVar "_v4" Star)
+  let type7 = Qual [Pred "Ord" tvar] $ makeFuncType [tvar, tvar] tvar
   assertDeclTypes type7 func7
 
 
@@ -312,7 +330,8 @@ ifThenReturn = do
   let ifStmt = S.If [] test [returnX] Nothing
   let returnY = returnJust $ E.Var [] "y"
   let func8 = func "f" ["x", "y"] [ifStmt, returnY]
-  let type8 = makeFuncType [tInt, tInt] tInt
+  let tvar = TVar (TyVar "_v4" Star)
+  let type8 = Qual [Pred "Ord" tvar] $ makeFuncType [tvar, tvar] tvar
   assertDeclTypes type8 func8
 
 
@@ -323,7 +342,7 @@ returnABC = do
   let returnC = returnJust $ E.Var [] "c"
   let ifStmt = S.If [] (E.Var [] "a") [returnB] (Just returnC)
   let func9 = func "f" ["a", "b", "c"] [ifStmt]
-  let type9 = makeFuncType [tBool, tvar "a", tvar "a"] (tvar "a")
+  let type9 = Qual [] $ makeFuncType [tBool, tvar "a", tvar "a"] (tvar "a")
   assertDeclTypes type9 func9
 
 
@@ -334,7 +353,7 @@ returnABC2 = do
   let returnC = returnJust $ E.Var [] "c"
   let ifStmt = S.If [] (E.Var [] "a") [returnB] Nothing
   let func9 = func "f" ["a", "b", "c"] [ifStmt, returnC]
-  let type9 = makeFuncType [tBool, tvar "a", tvar "a"] (tvar "a")
+  let type9 = Qual [] $ makeFuncType [tBool, tvar "a", tvar "a"] (tvar "a")
   assertDeclTypes type9 func9
 
 
@@ -344,7 +363,7 @@ returnAB = do
   let returnB = returnJust $ E.Var [] "b"
   let ifStmt = S.If [] (E.Var [] "a") [returnB] (Just returnB)
   let funcAB = func "f" ["a", "b"] [ifStmt]
-  let typeAB = makeFuncType [tBool, tvar "a"] (tvar "a")
+  let typeAB = Qual [] $ makeFuncType [tBool, tvar "a"] (tvar "a")
   assertDeclTypes typeAB funcAB
 
 returnABEnd :: Assertion
@@ -353,7 +372,7 @@ returnABEnd = do
   let returnB = returnJust $ E.Var [] "b"
   let ifStmt = S.If [] (E.Var [] "a") [returnB] Nothing
   let funcAB = func "f" ["a", "b"] [ifStmt, returnB]
-  let typeAB = makeFuncType [tBool, tvar "a"] (tvar "a")
+  let typeAB = Qual [] $ makeFuncType [tBool, tvar "a"] (tvar "a")
   assertDeclTypes typeAB funcAB
 
 
@@ -376,7 +395,7 @@ firstClassFunction = do
   -- (a -> a -> b)
   let xType = makeFuncType [tvar "a", tvar "a"] (tvar "b")
   -- (a -> a -> b) -> a -> b
-  let t = makeFuncType [xType, tvar "a"] (tvar "b")
+  let t = Qual [] $ makeFuncType [xType, tvar "a"] (tvar "b")
   assertDeclTypes t f
 
 
@@ -495,7 +514,7 @@ explicitLetBinding = do
   let letStmt = S.Let [] "y" typeAnnotation (E.Var [] "x")
   let returnStmt = returnJust (E.Var [] "y")
   let funcLet = func "f" ["x"] [letStmt, returnStmt]
-  let fnType = makeFuncType [tInt] tInt
+  let fnType = Qual [] $ makeFuncType [tInt] tInt
   assertDeclTypes fnType funcLet
 
 
@@ -551,17 +570,27 @@ returnJust expr = S.Return [] (Just expr)
 assertExprTypes :: Type -> ExpressionT -> Assertion
 assertExprTypes t expr = assertTypes3 t expr inferExpr
 
+assertExprTypesP :: ExpressionT -> Type -> [Predicate] -> Assertion
+assertExprTypesP expr t ps = assertTypesP t ps expr inferExpr
+
 
 assertExprFails :: ExpressionT -> Assertion
 assertExprFails expr = assertFails expr inferExpr
 
 
-assertDeclTypes :: Type -> DeclarationT -> Assertion
-assertDeclTypes t decl = assertTypes2 t decl inferDecl
+assertDeclTypes :: QualType -> DeclarationT -> Assertion
+assertDeclTypes qt decl = assertTypes2 qt decl inferDecl
 
 
 assertDeclFails :: DeclarationT -> Assertion
 assertDeclFails decl = assertFails decl inferDecl
+
+assertTypesP t ps ast inferFn = do
+  let result = inferEmpty $ inferFn startingEnv ast
+  assertRight result
+  let (Right (_, resultT, resultPS)) = result
+  assertMatches t resultT
+  assertEq ps resultPS
 
 
 assertTypes3 t ast inferFn = do
@@ -571,12 +600,13 @@ assertTypes3 t ast inferFn = do
   let (Just resultType) = getType typed
   assertMatches t resultType
 
-assertTypes2 t ast inferFn = do
+assertTypes2 (Qual ps t) ast inferFn = do
   let result = inferEmpty $ inferFn startingEnv ast
   assertRight result
-  let (Right (typed, _)) = result
+  let (Right (typed, resultPS)) = result
   let (Just resultType) = getType typed
   assertMatches t resultType
+  assertEq ps resultPS
 
 
 assertTypes t ast inferFn = do
@@ -649,6 +679,10 @@ testInstantiate (Scheme kinds qt) =
       genVars = zipWith TGen range kinds
       sub = Map.fromList $ zip genVars newVars
   in apply sub qt
+
+
+floatVal :: Float -> ExpressionT
+floatVal n = E.Val [] $ E.FloatVal [] n
 
 
 intVal :: Int -> ExpressionT

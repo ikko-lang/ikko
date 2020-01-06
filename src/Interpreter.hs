@@ -268,22 +268,22 @@ applyUOp op val = case op of
 
 applyBOp :: E.BinOp -> Value -> Value -> IO Value
 applyBOp op l r = case op of
-  E.Less      -> VBool <$> intOp  (<)    l r
-  E.LessEq    -> VBool <$> intOp  (<=)   l r
-  E.Greater   -> VBool <$> intOp  (>)    l r
-  E.GreaterEq -> VBool <$> intOp  (>=)   l r
-  E.Eq        -> VBool <$> intOp  (==)   l r
-  E.NotEq     -> VBool <$> intOp  (/=)   l r
+  E.Less      -> numOp (\a b -> VBool $ a <  b) (\a b -> VBool $ a <  b) l r
+  E.LessEq    -> numOp (\a b -> VBool $ a <= b) (\a b -> VBool $ a <= b) l r
+  E.Greater   -> numOp (\a b -> VBool $ a >  b) (\a b -> VBool $ a >  b) l r
+  E.GreaterEq -> numOp (\a b -> VBool $ a >= b) (\a b -> VBool $ a >= b) l r
+  E.Eq        -> numOp (\a b -> VBool $ a == b) (\a b -> VBool $ a == b) l r
+  E.NotEq     -> numOp (\a b -> VBool $ a /= b) (\a b -> VBool $ a /= b) l r
 
   E.BoolAnd   -> VBool <$> boolOp (&&)   l r
   E.BoolOr    -> VBool <$> boolOp (||)   l r
 
-  E.Plus      -> VInt  <$> intOp  (+)    l r
-  E.Minus     -> VInt  <$> intOp  (-)    l r
-  E.Times     -> VInt  <$> intOp  (*)    l r
-  E.Divide    -> VInt  <$> intOp  div    l r
+  E.Plus      -> numOp (\a b -> VInt $ a + b) (\a b -> VFloat $ a + b) l r
+  E.Minus     -> numOp (\a b -> VInt $ a - b) (\a b -> VFloat $ a - b) l r
+  E.Times     -> numOp (\a b -> VInt $ a * b) (\a b -> VFloat $ a * b) l r
+  E.Divide    -> numOp (\a b -> VInt $ a `div` b) (\a b -> VFloat $ a / b) l r
   E.Mod       -> VInt  <$> intOp  mod    l r
-  E.Power     -> VInt  <$> intOp  (^)    l r
+  E.Power     -> numOp (\a b -> VInt $ a ^ b) (\a b -> VFloat $ a ** b) l r
 
   E.BitAnd    -> VInt  <$> intOp  (.&.)  l r
   E.BitOr     -> VInt  <$> intOp  (.|.)  l r
@@ -292,6 +292,17 @@ applyBOp op l r = case op of
   E.LShift    -> VInt  <$> intOp  shiftL l r
   E.RShift    -> VInt  <$> intOp  shiftR l r
 
+numOp :: (Int -> Int -> Value) -> (Float -> Float -> Value) -> Value -> Value -> IO Value
+numOp ifn ffn l r = do
+  pair <- requireNum l r
+  case pair of
+    Left  (li, ri) -> return $ ifn li ri
+    Right (lf, rf) -> return $ ffn lf rf
+
+requireNum :: Value -> Value -> IO (Either (Int, Int) (Float, Float))
+requireNum (VInt i1) (VInt i2) = return $ Left (i1, i2)
+requireNum (VFloat f1) (VFloat f2) = return $ Right (f1, f2)
+requireNum _ _ = error "Not a number"
 
 intOp :: (Int -> Int -> a) -> Value -> Value -> IO a
 intOp fn l r = do

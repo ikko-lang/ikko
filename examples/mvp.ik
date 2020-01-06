@@ -28,8 +28,8 @@ fn do_stuff():
    // TODO: power only works for ints right now ** 2.73
 
    // Comparison operators
-   //let x  = fl < Float(int)
-   let x = True
+   let x  = fl < Float(int)
+   // let x = True
 
    // Bitwise operators (on Ints)
    let y  = (~1024) & (15 << 2)

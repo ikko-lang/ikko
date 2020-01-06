@@ -11,6 +11,7 @@ data Error
   | InfiniteType TyVar -- a type variable
   | KindMismatch TyVar Kind Kind
   | BindingTooGeneral String -- name of binding
+  | ContextTooWeak String
   | CompilerBug String
   | DuplicateBinding String -- binding name
   | ParseError String

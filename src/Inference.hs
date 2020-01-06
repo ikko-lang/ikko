@@ -14,6 +14,7 @@ module Inference
   , explicitBindings
   , splitExplicit
   , freshInst
+  , getExplicitType
   , BindGroup
   , Environment
   , TypedDecls
@@ -30,7 +31,7 @@ import qualified Data.Set as Set
 import Data.Maybe (isJust)
 import Data.List ((\\), partition)
 
---import Debug.Trace
+import Debug.Trace
 
 import Control.Monad (when, foldM, zipWithM, msum)
 import Control.Monad.State (StateT, modify, get, gets, put, lift, evalStateT, mapStateT)
@@ -57,6 +58,7 @@ import Types
   , Inst
   , Class(..)
   , ClassEnv(..)
+  , Types
   , instantiate
   , makeFuncType
   , makeVar
@@ -284,9 +286,10 @@ type Environment = Map String Scheme
 addToEnv :: Environment -> Environment -> Environment
 addToEnv = Map.union
 
--- TODO: Make this a proper instance of the Types.Types class
-applyEnv :: Substitution -> Environment -> Environment
-applyEnv sub = Map.map (apply sub)
+instance Types Environment where
+  apply sub env = Map.map (apply sub) env
+  freeTypeVars env =
+    Map.foldr Set.union Set.empty (Map.map freeTypeVars env)
 
 -- TODO: this should also start with prelude and imported names
 startingEnv :: Environment
@@ -331,6 +334,9 @@ newStarVar = newTypeVar Star
 getSub :: InferM Substitution
 getSub = gets currentSub
 
+getClassEnv :: InferM ClassEnv
+getClassEnv = gets cenv
+
 applyCurrentSub :: Type -> InferM Type
 applyCurrentSub t = do
   sub <- getSub
@@ -369,19 +375,30 @@ tiExpls expls env = case expls of
 tiExpl ::  String -> DeclarationT -> Environment -> InferM (DeclarationT, Preds)
 tiExpl name decl env = do
   let sch = mustLookup name env
-  (t, _) <- freshInst sch
+  (t, qs) <- freshInst sch
 
-  (d, ps2) <- inferDecl env decl
+  (d, ps) <- inferDecl env decl
   let dt = getType d
-
   withLocations [decl] $ unify t dt
 
   sub <- getSub
-  let qt = Qual ps2 dt
-  let sch' = generalize (applyEnv sub env) (apply sub qt)
+
+  let qs' = apply sub qs
+  let t' = apply sub t
+  let fs = freeTypeVars (apply sub env)
+  let gs = Set.difference (freeTypeVars t') fs
+
+  let sch' = quantify gs (Qual qs' t')
+
+  ce <- getClassEnv
+  let ps' = filter (not . entail ce qs') (apply sub ps)
+  (deferred, retained) <- split ce fs gs ps'
+
   if not $ schemesEquivalent sch' sch
-    then inferErrFor [decl] $ BindingTooGeneral $ name ++ ": " ++ show (sch', sch, dt)
-    else return (d, ps2)
+    then inferErrFor [decl] $ BindingTooGeneral $ name ++ ": " ++ show (sch', sch)
+    else if not (null retained)
+         then inferErrFor [decl] $ ContextTooWeak $ name
+         else return (d, deferred)
 
 
 getExplicitTypes :: [(String, DeclarationT)] -> InferM Environment
@@ -400,8 +417,8 @@ getExplicitType (name, decl) = case decl of
     let Just (gens, tdecl) = mgendecl
     gmap <- genericMap gens
     (t, ps) <- withLocations [decl] $ typeFromDecl gmap tdecl
-    let varSet = Set.fromList $ map (`TyVar` Star) gens
-    return (name, generalizeOver varSet $ Qual [] t)
+    let varSet = freeTypeVars $ Map.elems gmap
+    return (name, quantify varSet $ Qual [] t)
 
   D.TypeDef{} ->
     error "shouldn't see a typedef here"
@@ -439,14 +456,13 @@ inferGroup impls env = do
   sub <- getSub
   let subbed = map (apply sub) ts
   let qts = zipWith Qual preds subbed
-  let schemes = map (generalize (applyEnv sub env)) qts
+  let schemes = map (generalize (apply sub env)) qts -- TODO: Generalize is probably wrong here
   let resultEnv = Map.fromList $ zip bindingNames schemes
 
   return (typedDecls, resultEnv)
 
-
---showTrace :: (Show a) => String -> a -> a
---showTrace s a = trace (s ++ ": " ++ show a) a
+showTrace :: (Show a) => String -> a -> a
+showTrace s a = trace (s ++ ": " ++ show a) a
 
 inferDecls :: Environment -> [(String, DeclarationT)] -> [Type] -> InferM TypedDecls
 inferDecls env decls ts = mapM infer (zip decls ts)
@@ -469,6 +485,13 @@ generalizeOver envVars qt =
       sub = Map.fromList $ zip freeVars genVars
   in Scheme kinds (apply sub qt)
 
+quantify :: Set TyVar -> QualType -> Scheme
+quantify vs qt =
+  let vars = [ v | v <- Set.toList (freeTypeVars qt), Set.member v vs ]
+      kinds = map getKind vars
+      genVars = zipWith TGen [0..] kinds
+      s = Map.fromList $ zip (map TVar vars) genVars
+  in Scheme kinds (apply s qt)
 
 freshInst :: Scheme -> InferM (Type, Preds)
 freshInst sch@(Scheme kinds qt) = do
