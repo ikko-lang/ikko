@@ -184,7 +184,7 @@ makeConstructors ((t,d):ts) constrs = do
   -- list of kinds would have to be inferred by inspecting the data type.
   -- https://gitlab.haskell.org/ghc/ghc/wikis/ghc-kinds/kind-inference
   let kinds = replicate nGens Star
-  let generalized = zipWith TGen [1..nGens] kinds
+  let generalized = zipWith TGen [0..nGens-1] kinds
   let sub = makeSub $ zip (zipWith makeVar gens kinds) generalized
 
   constrs' <- case d of

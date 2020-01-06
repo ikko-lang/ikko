@@ -6,6 +6,12 @@ import qualified Data.Map as Map
 import Data.Set (Set)
 import qualified Data.Set as Set
 
+import Debug.Trace
+
+showTrace :: (Show a) => String -> a -> a
+showTrace s a = trace (s ++ ": " ++ show a) a
+
+
 data Kind
   = Star
   | KFun Kind Kind
@@ -80,6 +86,13 @@ getRoot :: Type -> Type
 getRoot (TAp a _) = getRoot a
 getRoot t         = t
 
+containsGenerics :: Type -> Bool
+containsGenerics t = case t of
+  TGen _ _  -> True
+  TAp a b   -> any containsGenerics [a, b]
+  TFunc _ _ -> False
+  TCon _ _  -> False
+  TVar   _  -> False
 
 type Substitution = Map Type Type
 
@@ -152,7 +165,10 @@ instance Types Scheme where
   freeTypeVars (Scheme _ t) = freeTypeVars t
 
 asScheme :: Type -> Scheme
-asScheme t = Scheme [] (Qual [] t)
+asScheme t =
+  if containsGenerics t
+  then error "t contains generics"
+  else Scheme [] (Qual [] t)
 
 isGeneric :: Type -> Bool
 isGeneric TGen{} = True
@@ -217,6 +233,7 @@ class Instantiate t where
 
 instance Instantiate Type where
   instantiate ts t = case t of
+    --TGen i _ -> ts !! (showTrace ("instantiate i=" ++ show i ++ ", ts=" ++ show ts) i)
     TGen i _ -> ts !! i
     TAp l r  -> TAp (instantiate ts l) (instantiate ts r)
     _        -> t

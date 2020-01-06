@@ -24,6 +24,7 @@ showRegion fileLines region =
       regionLines = take nlines $ drop (firstLine - 1) numberedLines
   in unlines regionLines
 
+maxLines :: Int
 maxLines = 5
 
 addNumber :: Int -> String -> String

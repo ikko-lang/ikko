@@ -33,7 +33,8 @@ getResults (t:ts) passes failures = do
 
 
 test :: String -> Assertion -> Test
-test name assertion =
+test name assertion = do
+  putStrLn name
   case assertion of
    Right _  -> return True
    Left err -> do
