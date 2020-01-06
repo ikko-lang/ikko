@@ -111,13 +111,13 @@ makeClassEnv =
   let classes = Map.fromList
         [ ("Eq",   Class
                    { superclasses=[]
-                   , instances=map (makeInst "Eq") [tUnit, tFloat, tChar, tString, tUnit] })
+                   , instances=map (makeInst "Eq") [tUnit, tInt, tFloat, tChar, tString, tUnit] })
         , ("Ord",  Class
                    { superclasses=["Eq"]
-                   , instances=map (makeInst "Ord") [tUnit, tFloat, tChar, tString, tUnit] })
+                   , instances=map (makeInst "Ord") [tUnit, tInt, tFloat, tChar, tString, tUnit] })
         , ("Show", Class
                    { superclasses=[]
-                   , instances=map (makeInst "Show") [tUnit, tFloat, tChar, tString, tUnit] })
+                   , instances=map (makeInst "Show") [tUnit, tInt, tFloat, tChar, tString, tUnit] })
         , ("Num",  Class
                    { superclasses=["Eq", "Show"]
                    , instances=map (makeInst "Num") [tInt, tFloat] })

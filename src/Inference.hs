@@ -357,11 +357,11 @@ inferBindGroup bg env = do
   let env1 = addToEnv explicitBindingTypes env
   let impls = implicitBindings bg
 
-  (decls1, env2) <- inferGroups impls env1
+  (decls1, env2, ps) <- inferGroups impls env1
   let env' = addToEnv env2 env1
   decls2 <- tiExpls expls env'
   return (decls1 ++ decls2, env')
-
+-- TODO: Return predicates, then apply defaulting at the top level
 
 tiExpls :: [(String, DeclarationT)] -> Environment -> InferM TypedDecls
 tiExpls expls env = case expls of
@@ -430,16 +430,16 @@ genericMap tnames = do
   return $ Map.fromList $ zip tnames gens
 
 inferGroups :: [[(String, DeclarationT)]] -> Environment ->
-               InferM (TypedDecls, Environment)
+               InferM (TypedDecls, Environment, Preds)
 inferGroups []     _   =
-  return ([], Map.empty)
+  return ([], Map.empty, [])
 inferGroups (g:gs) env = do
-  (typed, env1) <- inferGroup g env
-  (rest, env2) <- inferGroups gs (Map.union env1 env)
-  return (typed ++ rest, Map.union env1 env2)
+  (typed, env1, ps1) <- inferGroup g env
+  (rest, env2, ps2) <- inferGroups gs (Map.union env1 env)
+  return (typed ++ rest, Map.union env1 env2, ps1 ++ ps2)
 
 inferGroup :: [(String, DeclarationT)] -> Environment ->
-              InferM (TypedDecls, Environment)
+              InferM (TypedDecls, Environment, Preds)
 inferGroup impls env = do
   -- Map each binding to a new type variable while recursively typing these bindings
   ts <- mapM (const newStarVar) impls
@@ -454,12 +454,16 @@ inferGroup impls env = do
 
   -- Apply the substitution to all the types and generalize them to schemes
   sub <- getSub
+  let preds' = apply sub (concat preds)
   let subbed = map (apply sub) ts
-  let qts = zipWith Qual preds subbed
-  let schemes = map (generalize (apply sub env)) qts -- TODO: Generalize is probably wrong here
+  let fs = freeTypeVars (apply sub env)
+  let vss = map freeTypeVars subbed
+  let gs = Set.difference (foldr1 Set.union vss) fs
+  ce <- getClassEnv
+  (deferred, retained) <- split ce fs (foldr1 Set.intersection vss) preds'
+  let schemes = map (quantify fs . Qual retained) subbed
   let resultEnv = Map.fromList $ zip bindingNames schemes
-
-  return (typedDecls, resultEnv)
+  return (typedDecls, resultEnv, deferred)
 
 showTrace :: (Show a) => String -> a -> a
 showTrace s a = trace (s ++ ": " ++ show a) a

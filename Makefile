@@ -26,6 +26,6 @@ tags:
 	hasktags -e src
 
 check_examples: ikko
-	@for F in examples/*.ik; do echo -n "."; stack exec ikko -- $$F > /dev/null || echo "\n$F failed"; done && echo "\nall good"
+	@./build/check_examples.sh
 
 .PHONY: run ikko
