@@ -1,0 +1,6 @@
+Status of adding typeclasses:
+
+- Inference needs to do defaulting at the global level
+- The parser needs to support class and instance definitions
+- First pass needs to be able to collect the definitions
+- The interpreter may need to gain support for typeclasses
