@@ -97,18 +97,18 @@ tests =
   , test "while loop" whileLoop
   , test "if-else return" ifElseReturn
   , test "if-then return" ifThenReturn
-  -- , test "return a-b-c" returnABC
-  -- , test "return a-b-c 2" returnABC2
-  -- , test "return a-b" returnAB
-  -- , test "return a-b end" returnABEnd
-  -- , test "missing return" missingReturn
-  -- , test "first class function" firstClassFunction
-  -- , test "no higher order polymorphism" noHigherOrderPolymorphism
-  -- , test "infinite type" infiniteType
-  -- , test "finding dependencies" findDependencies
-  -- , test "simple module" simpleModule
-  -- , test "explicit let binding" explicitLetBinding
-  -- , test "explicitly typed function" explicitFunctionBinding
+  , test "return a-b-c" returnABC
+  , test "return a-b-c 2" returnABC2
+  , test "return a-b" returnAB
+  , test "return a-b end" returnABEnd
+  , test "missing return" missingReturn
+  , test "first class function" firstClassFunction
+  , test "no higher order polymorphism" noHigherOrderPolymorphism
+  , test "infinite type" infiniteType
+  , test "finding dependencies" findDependencies
+  , test "simple module" simpleModule
+  , test "explicit let binding" explicitLetBinding
+  , test "explicitly typed function" explicitFunctionBinding
   ]
 
 
@@ -552,7 +552,8 @@ makeModule bindings =
   let bindMap = Map.fromList bindings
   in Module
      { bindings=bindMap
-     , constructors=Map.empty }
+     , constructors=Map.empty
+     , classEnv=makeClassEnv }
 
 
 findGroups :: [(String, DeclarationT)] -> [[String]]

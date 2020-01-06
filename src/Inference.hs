@@ -247,7 +247,7 @@ instance Depencencies (E.Expression Annotation) where
     E.Cast _ _ inner ->
       findDependencies bound inner
     E.Var _ name ->
-      if Set.member name bound then [] else [name]
+      [name | not (Set.member name bound)]
     E.Access _ inner _ ->
       findDependencies bound inner
 
@@ -287,7 +287,7 @@ addToEnv :: Environment -> Environment -> Environment
 addToEnv = Map.union
 
 instance Types Environment where
-  apply sub env = Map.map (apply sub) env
+  apply sub = Map.map (apply sub)
   freeTypeVars env =
     Map.foldr Set.union Set.empty (Map.map freeTypeVars env)
 
@@ -397,7 +397,7 @@ tiExpl name decl env = do
   if not $ schemesEquivalent sch' sch
     then inferErrFor [decl] $ BindingTooGeneral $ name ++ ": " ++ show (sch', sch)
     else if not (null retained)
-         then inferErrFor [decl] $ ContextTooWeak $ name
+         then inferErrFor [decl] $ ContextTooWeak name
          else return (d, deferred)
 
 
