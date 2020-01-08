@@ -13,13 +13,7 @@ import qualified AST.Statement as S
 import qualified AST.Type as T
 import Parser
 
-import UnitTest
-  ( Assertion
-  , Test
-  , assertRight
-  , assertLeft
-  , runTests
-  , test )
+import Test.HUnit
 
 
 type DeclarationT     = D.Declaration     Annotation
@@ -31,7 +25,7 @@ type StatementT       = S.Statement       Annotation
 type TypeDeclT        = T.TypeDecl        Annotation
 
 
-main = runTests "Parser" tests
+main = runTestTT tests
 
 boolT :: TypeDeclT
 boolT = T.TypeName [] "Bool"
@@ -85,9 +79,10 @@ sReturn = S.Return []
 sAssign :: [String] -> Expr -> Stmt
 sAssign = S.Assign []
 
-tests :: [Test]
+tests :: Test
 tests =
   -- expressions
+  TestList
   [ expectParsesA numberParser "123.345" (floatVal 123.345)
   , expectParsesA valueParser "123.345" (floatVal 123.345)
   , expectParsesA expressionParser "123.345" (eVal (floatVal 123.345))
@@ -282,23 +277,20 @@ expectParses = expectParses' id
 
 expectParses' :: (Eq a, Show a) => (a -> a) -> Parser a -> String -> a -> Test
 expectParses' postprocess parser text expected =
+  TestCase $
   case parse (parser <* eof) text of
    (Left err) -> do
-     putStrLn $  "failed parsing ''" ++ text ++ "'', error parsing (" ++ show err ++ ")"
-     return False
-   (Right result) ->
-     if postprocess result == expected
-     then return True
-     else do
-       let parts =
+     assertFailure $  "failed parsing ''" ++ text ++ "'', error parsing (" ++ show err ++ ")"
+   (Right result) -> do
+     let message =
+           concat 
              [ "failed parsing ''"
              , text
              , "''\n=== expected: ===\n  "
              , show expected
              , "\n=== got ===\n  "
              , show result ]
-       putStrLn $ concat parts
-       return False
+     assertEqual message expected (postprocess result)
 
 parse :: Parser a -> String -> Either ParseError a
 parse parser text = runIdentity $ runIndentParserT parser () "<test>" text
