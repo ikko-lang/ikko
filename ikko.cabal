@@ -108,7 +108,6 @@ Test-Suite test-first-pass
                   FirstPass,
                   Region,
                   Types,
-                  UnitTest,
                   Util.DoOnce,
                   Util.Functions
 
@@ -128,7 +127,6 @@ Test-Suite test-parser
                   Parser,
                   Region,
                   Types,
-                  UnitTest,
                   Util.DoOnce,
                   Util.Functions
 
@@ -140,7 +138,6 @@ Test-Suite test-graph
     default-language:    Haskell2010
     ghc-options:         -j
     other-modules:
-                  UnitTest,
                   Util.DoOnce,
                   Util.Functions,
                   Util.Graph
@@ -149,7 +146,7 @@ Test-Suite test-graph
 Test-Suite test-infer
     type:    exitcode-stdio-1.0
     main-is: test-Inference.hs
-    build-depends: base, containers, mtl
+    build-depends: base, containers, mtl, HUnit
     hs-source-dirs:      src
     default-language:    Haskell2010
     ghc-options:         -j -O0
@@ -164,7 +161,6 @@ Test-Suite test-infer
                   Inference,
                   Region,
                   Types,
-                  UnitTest,
                   Util.DoOnce,
                   Util.Functions,
                   Util.Graph

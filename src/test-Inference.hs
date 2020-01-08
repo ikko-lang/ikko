@@ -1,5 +1,7 @@
 module Main where
 
+import Test.HUnit
+
 import qualified Data.Map as Map
 import Debug.Trace (trace)
 
@@ -59,19 +61,6 @@ import Errors
   ( Error(..)
   , Result )
 
-import UnitTest
-  ( Assertion
-  , Test
-  , err
-  , assert
-  , assertEq
-  , assertRight
-  , assertLeft
-  , assertTrue
-  , assertFalse
-  , runTests
-  , test )
-
 
 type DeclarationT     = D.Declaration     Annotation
 type ExpressionT      = E.Expression      Annotation
@@ -81,35 +70,49 @@ type MatchExpressionT = S.MatchExpression Annotation
 type StatementT       = S.Statement       Annotation
 type TypeDeclT        = T.TypeDecl        Annotation
 
+assertRight :: Either a b -> Assertion
+assertRight (Left _) = assertFailure "expected Right, got Left"
+assertRight _        = return ()
 
-main = runTests "Inference" tests
+assertLeft :: Either a b -> Assertion
+assertLeft (Right _) = assertFailure "expected Left, got Right"
+assertLeft _         = return ()
 
-tests :: [Test]
+assertFalse = assertEqual "" False
+assertTrue = assertEqual "" True
+
+
+main = runTestTT tests
+
+tests :: Test
 tests =
-  [ test "comparing types" comparingTypes
-  , test "composing substitutions" composingSubs
-  , test "basic unification" basicUnification
-  , test "recursive unification" recursiveUnification
-  , test "getting explicit type" gettingExplicitType
-  , test "instantiation" instantiation
-  , test "expression inference" simpleInference
-  , test "simple functions" functionInference
-  , test "while loop" whileLoop
-  , test "if-else return" ifElseReturn
-  , test "if-then return" ifThenReturn
-  , test "return a-b-c" returnABC
-  , test "return a-b-c 2" returnABC2
-  , test "return a-b" returnAB
-  , test "return a-b end" returnABEnd
-  , test "missing return" missingReturn
-  , test "first class function" firstClassFunction
-  , test "no higher order polymorphism" noHigherOrderPolymorphism
-  , test "infinite type" infiniteType
-  , test "finding dependencies" findDependencies
-  , test "simple module" simpleModule
-  , test "explicit let binding" explicitLetBinding
-  , test "explicitly typed function" explicitFunctionBinding
+  TestList
+  [ ts "comparing types" comparingTypes
+  , ts "composing substitutions" composingSubs
+  , ts "basic unification" basicUnification
+  , ts "recursive unification" recursiveUnification
+  , ts "getting explicit type" gettingExplicitType
+  , ts "instantiation" instantiation
+  , ts "expression inference" simpleInference
+  , ts "simple functions" functionInference
+  , ts "while loop" whileLoop
+  , ts "if-else return" ifElseReturn
+  , ts "if-then return" ifThenReturn
+  , ts "return a-b-c" returnABC
+  , ts "return a-b-c 2" returnABC2
+  , ts "return a-b" returnAB
+  , ts "return a-b end" returnABEnd
+  , ts "missing return" missingReturn
+  , ts "first class function" firstClassFunction
+  , ts "no higher order polymorphism" noHigherOrderPolymorphism
+  , ts "infinite type" infiniteType
+  , ts "finding dependencies" findDependencies
+  , ts "simple module" simpleModule
+  , ts "explicit let binding" explicitLetBinding
+  , ts "explicitly typed function" explicitFunctionBinding
   ]
+
+ts name assertion = TestLabel name $ TestCase assertion
 
 
 -- Make should ghat the isAlphaSub function works properly,
@@ -142,51 +145,51 @@ comparingTypes = do
 composingSubs :: Assertion
 composingSubs = do
   -- Try the trivial cases
-  assertEq emptySubstitution (composeSubs emptySubstitution emptySubstitution)
+  assertEqual "" emptySubstitution (composeSubs emptySubstitution emptySubstitution)
 
   let subAB = makeSub [(tvar "a", tvar "b")]
-  assertEq subAB (composeSubs emptySubstitution subAB)
-  assertEq subAB (composeSubs subAB emptySubstitution)
-  assertEq subAB (composeSubs subAB subAB)
+  assertEqual "" subAB (composeSubs emptySubstitution subAB)
+  assertEqual "" subAB (composeSubs subAB emptySubstitution)
+  assertEqual "" subAB (composeSubs subAB subAB)
 
   -- Test updating elements of the other substitution
   let subBC = makeSub [(tvar "b", tvar "c")]
   let subABtoC = makeSub [(tvar "a", tvar "c"), (tvar "b", tvar "c")]
-  assertEq subABtoC $ composeSubs subAB subBC
+  assertEqual "" subABtoC $ composeSubs subAB subBC
 
 basicUnification :: Assertion
 basicUnification = do
   let result1 = mgu tUnit tUnit
-  assertEq (Right emptySubstitution) result1
+  assertEqual "" (Right emptySubstitution) result1
 
   let result2 = mgu tUnit tInt
   assertLeft result2
 
   let result3 = mgu (tvar "a") tInt
-  assertEq (Right $ makeSub [(tvar "a", tInt)]) result3
+  assertEqual "" (Right $ makeSub [(tvar "a", tInt)]) result3
 
   let result4 = mgu (tvar "a") (tvar "a")
-  assertEq (Right emptySubstitution) result4
+  assertEqual "" (Right emptySubstitution) result4
 
   let result5 = mgu tInt (tvar "x")
-  assertEq (Right $ makeSub [(tvar "x", tInt)]) result5
+  assertEqual "" (Right $ makeSub [(tvar "x", tInt)]) result5
 
   let result6 = mgu (tvar "a") (tvar "b")
-  assertEq (Right $ makeSub [(tvar "a", tvar "b")]) result6
+  assertEqual "" (Right $ makeSub [(tvar "a", tvar "b")]) result6
 
   let result7 = mgu (tvar "a") (makeFuncType [tvar "a"] tInt)
-  assertEq (Left $ InfiniteType $ TyVar "a" Star) result7
+  assertEqual "" (Left $ InfiniteType $ TyVar "a" Star) result7
 
 
 recursiveUnification :: Assertion
 recursiveUnification = do
   let result1 = mgu (makeFuncType [tvar "a"] (tvar "a")) (makeFuncType [tvar "b"] tInt)
   let expected1 = makeSub [(tvar "a", tInt), (tvar "b", tInt)]
-  assertEq (Right expected1) result1
+  assertEqual "" (Right expected1) result1
 
   let result2 = mgu (makeFuncType [tvar "a"] (tvar "b")) (makeFuncType [tvar "b"] (tvar "a"))
   let expected2 = makeSub [(tvar "a", tvar "b")]
-  assertEq (Right expected2) result2
+  assertEqual "" (Right expected2) result2
 
   let result3 = mgu (makeFuncType [tInt] (tvar "a")) (makeFuncType [tvar "a"] tUnit)
   assertLeft result3
@@ -200,7 +203,7 @@ gettingExplicitType = do
   let result = inferEmpty $ getExplicitType ("identity", decl)
   let sch = Scheme [Star] (Qual [] (TAp (TAp (TFunc 1 (kindN 2)) (TGen 0 Star)) (TGen 0 Star)))
   let expected = ("identity", sch)
-  assertEq (Right expected) result
+  assertEqual "" (Right expected) result
 
 
 instantiation :: Assertion
@@ -429,7 +432,7 @@ findDependencies = do
   -- g(x) { return x; }
   let fCallsG = func "f" ["x"] [returnJust $ E.Call [] varG [varX]]
   let g = func "g" ["x"] [returnJust varX]
-  assertEq [["g"], ["f"]] (findGroups [("f", fCallsG), ("g", g)])
+  assertEqual "" [["g"], ["f"]] (findGroups [("f", fCallsG), ("g", g)])
 
   -- f(x) { return g(x); }
   -- g(x) { return f(x); }
@@ -437,7 +440,7 @@ findDependencies = do
   let gCallsF = func "g" ["x"] [returnJust $ E.Call [] varF [varX]]
   let hReturnsG = func "h" [] [returnJust varG]
   let bindings2 = [("f", fCallsG), ("g", gCallsF), ("h", hReturnsG)]
-  assertEq [["g", "f"], ["h"]] (findGroups bindings2)
+  assertEqual "" [["g", "f"], ["h"]] (findGroups bindings2)
 
   -- f(x Int) Int { return g(x); }
   -- g(x) { return f(x); }
@@ -447,10 +450,10 @@ findDependencies = do
   let fExpl = D.Function [] "f" typeAnnotation ["x"] (returnJust $ E.Call [] varG [varX])
   let bindings3 = [("f", fExpl), ("g", gCallsF), ("h", hReturnsG)]
   let (di, de) = splitExplicit $ Map.fromList bindings3
-  assertEq ["g", "h"] $ Map.keys di
-  assertEq ["f"] $ Map.keys de
-  assertEq [["g"], ["h"]] (findGroups bindings3)
-  assertEq ["f"] $ map fst $ explicitBindings $ makeBindGroup $ makeModule bindings3
+  assertEqual "" ["g", "h"] $ Map.keys di
+  assertEqual "" ["f"] $ Map.keys de
+  assertEqual "" [["g"], ["h"]] (findGroups bindings3)
+  assertEqual "" ["f"] $ map fst $ explicitBindings $ makeBindGroup $ makeModule bindings3
 
   -- TODO: Test more deeply nested AST
   -- TODO: Test larger call graphs w/ longer cycles
@@ -501,9 +504,9 @@ simpleModule = do
   let result4 = inferModule $ makeModule [("f", fCallsID), ("id", identityCallingF)]
   let lessGeneralIDType = Scheme [] $ Qual []  $ makeFuncType [tInt] tInt
   let fCallsIDType = Scheme [] $ Qual []  $ makeFuncType [tInt] tBool
-  Right ()
   -- assertModuleTypes "f" fCallsIDType result4
   -- assertModuleTypes "id" lessGeneralIDType result4
+  return ()
 
 
 explicitLetBinding :: Assertion
@@ -540,10 +543,10 @@ explicitFunctionBinding = do
 
 assertModuleTypes :: String -> Scheme -> Result InferResult -> Assertion
 assertModuleTypes name sch result = case result of
-  Left msg          -> err $ "failed to infer type for module: " ++ show msg
+  Left msg          -> assertFailure $ "failed to infer type for module: " ++ show msg
   Right inferResult ->
     case Map.lookup name $ topLevelEnv inferResult of
-     Nothing        -> err $ "can't find " ++ name
+     Nothing        -> assertFailure $ "can't find " ++ name
      Just resultSch -> assertSchemeUnifies sch resultSch
 
 
@@ -591,7 +594,7 @@ assertTypesP t ps ast inferFn = do
   assertRight result
   let (Right (_, resultT, resultPS)) = result
   assertMatches t resultT
-  assertEq ps resultPS
+  assertEqual "" ps resultPS
 
 
 assertTypes3 t ast inferFn = do
@@ -607,7 +610,7 @@ assertTypes2 (Qual ps t) ast inferFn = do
   let (Right (typed, resultPS)) = result
   let (Just resultType) = getType typed
   assertMatches t resultType
-  assertEq ps resultPS
+  assertEqual "" ps resultPS
 
 
 assertTypes t ast inferFn = do
@@ -631,7 +634,7 @@ assertMatches expected result = do
   assertNoGenerics result
   let message = "expected\n  " ++ show result ++
                 "\nto be equivalent to\n  " ++ show expected ++ "\n"
-  assert (alphaSubstitues expected result) message
+  assertEqual message True (alphaSubstitues expected result)
 
 
 assertInstantiates :: Scheme -> Type -> Assertion
@@ -649,7 +652,7 @@ inferEmpty = runInfer Map.empty makeClassEnv
 assertNoGenerics :: Type -> Assertion
 assertNoGenerics t =
   let message = "expected the type (" ++ show t ++ ") to not contain generics"
-  in assert (not $ containsGenerics t) message
+  in assertEqual message True (not $ containsGenerics t)
 
 
 containsGenerics :: Type -> Bool
@@ -664,10 +667,10 @@ containsGenerics t = case t of
 -- expected, result
 assertSchemeUnifies :: Scheme -> Scheme -> Assertion
 assertSchemeUnifies s1@(Scheme n1 _) s2@(Scheme n2 _) = do
-  assertEq n1 n2
+  assertEqual "" n1 n2
   let (Qual ps1 t1) = testInstantiate s1
   let (Qual ps2 t2) = testInstantiate s2
-  assertEq ps1 ps2
+  assertEqual "" ps1 ps2
   assertMatches t1 t2
 
 

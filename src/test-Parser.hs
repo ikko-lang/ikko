@@ -279,9 +279,9 @@ expectParses' :: (Eq a, Show a) => (a -> a) -> Parser a -> String -> a -> Test
 expectParses' postprocess parser text expected =
   TestCase $
   case parse (parser <* eof) text of
-   (Left err) -> do
+   (Left err) ->
      assertFailure $  "failed parsing ''" ++ text ++ "'', error parsing (" ++ show err ++ ")"
-   (Right result) -> do
+   (Right result) ->
      let message =
            concat 
              [ "failed parsing ''"
@@ -290,7 +290,7 @@ expectParses' postprocess parser text expected =
              , show expected
              , "\n=== got ===\n  "
              , show result ]
-     assertEqual message expected (postprocess result)
+     in assertEqual message expected (postprocess result)
 
 parse :: Parser a -> String -> Either ParseError a
 parse parser text = runIdentity $ runIndentParserT parser () "<test>" text
