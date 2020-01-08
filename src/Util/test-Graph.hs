@@ -5,6 +5,7 @@ import qualified Data.Map as Map
 import Data.Set (Set)
 import qualified Data.Set as Set
 
+import Test.HUnit hiding (Testable)
 import Test.QuickCheck
   ( quickCheck
   , quickCheckWithResult
@@ -14,21 +15,14 @@ import Test.QuickCheck
   , Result(..) )
 
 import Util.Graph
-import UnitTest
-  ( Assertion
-  , Test
-  , assertEq
-  , assertRight
-  , assertLeft
-  , runTests
-  , test )
 
 
-main = runTests "Graph" tests
+main = runTestTT tests
 
-tests :: [Test]
+tests :: Test
 tests =
-  [ test "example graph" testExample
+  TestList
+  [ TestLabel "example graph" $ TestCase testExample
   , checkProperty "no empty groups" propNoEmptyGroups
   , checkProperty "same cardnality" propSameCardnality
   , checkProperty "disjoint" propDisjoint
@@ -37,14 +31,10 @@ tests =
   ]
 
 checkProperty :: (Testable prop) => String -> prop -> Test
-checkProperty name property = do
+checkProperty name property = TestLabel name $ TestCase $ do
   let args = stdArgs { maxSuccess = 100 }
   result <- quickCheckWithResult args property
-  if isSuccess result
-     then return True
-    else do
-      putStrLn $ "testing " ++ name ++ " failed"
-      return False
+  assertBool "" (isSuccess result)
 
 isSuccess :: Result -> Bool
 isSuccess Success{} = True
@@ -100,4 +90,4 @@ testExample :: Assertion
 testExample =
   let graph = Map.fromList [('a', "b"), ('b', "ecf"), ('c', "dg"), ('d', "ch"), ('e', "af"), ('f', "g"), ('g', "f"), ('h', "gd")]
       expected = reverse $ map reverse ["fg", "cdh", "abe"]
-  in assertEq expected (components graph)
+  in assertEqual "" expected (components graph)
