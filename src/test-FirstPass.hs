@@ -1,5 +1,7 @@
 module Main where
 
+import Test.HUnit
+
 import qualified Data.Map as Map
 
 import FirstPass
@@ -11,23 +13,26 @@ import qualified AST.Declaration as D
 import qualified AST.Statement as S
 import qualified AST.Type as T
 import Types
-import UnitTest
-  ( Assertion
-  , assertEq
-  , assertRight
-  , assertLeft
-  , runTests
-  , test )
 
-main = runTests "FirstPass" tests
+main = runTestTT tests
 
 tests =
-  [ test "empty fn body" testCheckReturns1
-  , test "unreachable statement" testCheckReturns2
-  , test "building struct constructor" testBuildStructConstructor
-  , test "building enum constructor" testBuildEnumConstructor
+  TestList
+  [ ts "empty fn body" testCheckReturns1
+  , ts "unreachable statement" testCheckReturns2
+  , ts "building struct constructor" testBuildStructConstructor
+  , ts "building enum constructor" testBuildEnumConstructor
   ]
 
+ts name assertion = TestLabel name $ TestCase assertion
+
+assertRight :: Either a b -> Assertion
+assertRight (Left _) = assertFailure "expected Right, got Left"
+assertRight _        = return ()
+
+assertLeft :: Either a b -> Assertion
+assertLeft (Right _) = assertFailure "expected Left, got Right"
+assertLeft _         = return ()
 
 testCheckReturns1 :: Assertion
 testCheckReturns1 = do
@@ -50,13 +55,13 @@ testBuildStructConstructor = do
   let tDecl = T.Struct [] [("first", T.TypeName [] "A"), ("second", T.TypeName [] "B")]
   let result = makeConstructors [(tDef, tDecl)] Map.empty
 
-  let firstSch = Scheme [Star, Star] $ Qual [] $ makeFuncType [tcon "Pair" [tgenN 1, tgenN 2]] (tgenN 1)
-  let secondSch = Scheme [Star, Star] $ Qual [] $ makeFuncType [tcon "Pair" [tgenN 1, tgenN 2]] (tgenN 2)
+  let firstSch = Scheme [Star, Star] $ Qual [] $ makeFuncType [tcon "Pair" [tgenN 0, tgenN 1]] (tgenN 0)
+  let secondSch = Scheme [Star, Star] $ Qual [] $ makeFuncType [tcon "Pair" [tgenN 0, tgenN 1]] (tgenN 1)
   let fields = [("first", firstSch), ("second", secondSch)]
-  let sch = Scheme [Star, Star] $ Qual [] (makeFuncType [tgenN 1, tgenN 2] $ tcon "Pair" [tgenN 1, tgenN 2])
+  let sch = Scheme [Star, Star] $ Qual [] (makeFuncType [tgenN 0, tgenN 1] $ tcon "Pair" [tgenN 0, tgenN 1])
   let ctor = Constructor { ctorFields=fields, ctorType=sch }
   let expected = Map.fromList [("Pair", ctor)]
-  assertEq (Right expected) result
+  assertEqual "" (Right expected) result
 
 
 testBuildEnumConstructor :: Assertion
@@ -68,19 +73,19 @@ testBuildEnumConstructor = do
   let result = makeConstructors [(tDef, tDecl)] Map.empty
 
 
-  let schNothing = Scheme [Star] $ Qual [] (makeFuncType [] $ tcon "Maybe" [tgenN 1])
+  let schNothing = Scheme [Star] $ Qual [] (makeFuncType [] $ tcon "Maybe" [tgenN 0])
   let ctorNothing = Constructor { ctorFields=[], ctorType=schNothing }
 
-  let schVal = Scheme [Star] $ Qual [] (makeFuncType [tcon "Maybe" [tgenN 1]] (tgenN 1))
+  let schVal = Scheme [Star] $ Qual [] (makeFuncType [tcon "Maybe" [tgenN 0]] (tgenN 0))
   let fieldsJust = [("val", schVal)]
-  let schJust = Scheme [Star] $ Qual [] (makeFuncType [tgenN 1] $ tcon "Maybe" [tgenN 1])
+  let schJust = Scheme [Star] $ Qual [] (makeFuncType [tgenN 0] $ tcon "Maybe" [tgenN 0])
   let ctorJust = Constructor { ctorFields=fieldsJust, ctorType=schJust }
 
-  let schMaybe = Scheme [Star] $ Qual [] (makeFuncType [] $ tcon "Maybe" [tgenN 1])
+  let schMaybe = Scheme [Star] $ Qual [] (makeFuncType [] $ tcon "Maybe" [tgenN 0])
   let ctorMaybe = Constructor { ctorFields=[], ctorType=schMaybe }
   let expected = Map.fromList [("Maybe", ctorMaybe), ("Just", ctorJust), ("Nothing", ctorNothing)]
 
-  assertEq (Right expected) result
+  assertEqual "" (Right expected) result
 
 
 printStmt =
