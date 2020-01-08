@@ -5,8 +5,11 @@ module Inference
   , mgu
   , startingEnv
   , runInfer
+  , runInferWithSub
   , inferExpr
   , inferDecl
+  , tiExpl
+  , inferGroup
   , unifies
   , alphaSubstitues
   , makeBindGroup
@@ -34,7 +37,7 @@ import Data.List ((\\), partition)
 import Debug.Trace
 
 import Control.Monad (when, foldM, zipWithM, msum)
-import Control.Monad.State (StateT, modify, get, gets, put, lift, evalStateT, mapStateT)
+import Control.Monad.State (StateT, modify, get, gets, put, lift, evalStateT, mapStateT, runStateT)
 
 
 import Util.Functions
@@ -301,6 +304,12 @@ runInfer :: Monad m => Map String Constructor
          -> ClassEnv -> StateT InferState m a -> m a
 runInfer ctors ce f =
   evalStateT f (startingInferState ctors ce)
+
+runInferWithSub :: Monad m =>
+  Map String Constructor -> ClassEnv -> StateT InferState m a -> m (a, Substitution)
+runInferWithSub ctors ce f = do
+  (a, st) <- runStateT f (startingInferState ctors ce)
+  return (a, currentSub st)
 
 inferErr :: Error -> InferM a
 inferErr err = lift $ Left err

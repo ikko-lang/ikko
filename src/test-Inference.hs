@@ -4,6 +4,7 @@ import Test.HUnit
 
 import qualified Data.Map as Map
 import Debug.Trace (trace)
+import Control.Monad (unless)
 
 import AST.Annotation (Annotated, Annotation, getType)
 import qualified AST.Declaration as D
@@ -37,14 +38,17 @@ import Types
   , tUnit
   , makeFuncType
   , makeSub
-  , emptySubstitution )
+  , emptySubstitution
+  , showSub )
 
 import Inference
   ( mgu
   , startingEnv
   , runInfer
+  , runInferWithSub
   , inferExpr
   , inferDecl
+  , inferGroup
   , unifies
   , alphaSubstitues
   , makeBindGroup
@@ -74,8 +78,8 @@ assertRight :: Either a b -> Assertion
 assertRight (Left _) = assertFailure "expected Right, got Left"
 assertRight _        = return ()
 
-assertLeft :: Either a b -> Assertion
-assertLeft (Right _) = assertFailure "expected Left, got Right"
+assertLeft :: (Show b) => Either a b -> Assertion
+assertLeft (Right b) = assertFailure $ "expected Left, got Right " ++ show b
 assertLeft _         = return ()
 
 assertFalse = assertEqual "" False
@@ -321,7 +325,7 @@ ifElseReturn = do
   let returnY = returnJust $ E.Var [] "y"
   let ifStmt = S.If [] test [returnX] (Just returnY)
   let func7 = func "f" ["x", "y"] [ifStmt]
-  let tvar = TVar (TyVar "_v4" Star)
+  let tvar = TVar (TyVar "_v2" Star)
   let type7 = Qual [Pred "Ord" tvar] $ makeFuncType [tvar, tvar] tvar
   assertDeclTypes type7 func7
 
@@ -334,7 +338,7 @@ ifThenReturn = do
   let ifStmt = S.If [] test [returnX] Nothing
   let returnY = returnJust $ E.Var [] "y"
   let func8 = func "f" ["x", "y"] [ifStmt, returnY]
-  let tvar = TVar (TyVar "_v4" Star)
+  let tvar = TVar (TyVar "_v2" Star)
   let type8 = Qual [Pred "Ord" tvar] $ makeFuncType [tvar, tvar] tvar
   assertDeclTypes type8 func8
 
@@ -584,8 +588,16 @@ assertExprFails expr = assertFails expr inferExpr
 
 
 assertDeclTypes :: QualType -> DeclarationT -> Assertion
-assertDeclTypes qt decl = assertTypes2 qt decl inferDecl
-
+assertDeclTypes (Qual ps t) ast = do
+  let name = "f" -- TODO: Take from argument
+  let result = inferWithSub $ inferGroup [(name, ast)] startingEnv
+  assertRight result
+  let (Right ((typed, env, preds), sub)) = result
+  let (Just (Scheme _ (Qual resultPS resultT))) = Map.lookup name env
+  assertMatches t resultT
+  unless (ps == resultPS) $
+    putStrLn $ "\n    sub: " ++ showSub sub
+  assertEqual "" ps resultPS
 
 assertDeclFails :: DeclarationT -> Assertion
 assertDeclFails decl = assertFails decl inferDecl
@@ -604,14 +616,6 @@ assertTypes3 t ast inferFn = do
   let (Right (typed, _, _)) = result
   let (Just resultType) = getType typed
   assertMatches t resultType
-
-assertTypes2 (Qual ps t) ast inferFn = do
-  let result = inferEmpty $ inferFn startingEnv ast
-  assertRight result
-  let (Right (typed, resultPS)) = result
-  let (Just resultType) = getType typed
-  assertMatches t resultType
-  assertEqual "" ps resultPS
 
 
 assertTypes t ast inferFn = do
@@ -648,6 +652,8 @@ runInstantiate sch =
   in t
 
 inferEmpty = runInfer Map.empty makeClassEnv
+
+inferWithSub = runInferWithSub Map.empty makeClassEnv
 
 
 assertNoGenerics :: Type -> Assertion

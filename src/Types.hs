@@ -96,6 +96,11 @@ containsGenerics t = case t of
 
 type Substitution = Map Type Type
 
+showSub :: Substitution -> String
+showSub = showPairs . Map.toList
+  where showPairs pairs = intercalate "; " $ map showPair pairs
+        showPair (k, v) = prettyPrint k ++ " => " ++ prettyPrint v
+
 emptySubstitution :: Substitution
 emptySubstitution = Map.empty
 
