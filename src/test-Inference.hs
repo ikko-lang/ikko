@@ -94,7 +94,7 @@ tests =
   , ts "getting explicit type" gettingExplicitType
   , ts "instantiation" instantiation
   , ts "expression inference" simpleInference
-  , ts "simple functions" functionInference
+  , TestLabel "simple functions" functionInference
   , ts "while loop" whileLoop
   , ts "if-else return" ifElseReturn
   , ts "if-then return" ifThenReturn
@@ -113,7 +113,7 @@ tests =
   ]
 
 ts name assertion = TestLabel name $ TestCase assertion
-
+labeled = ts
 
 -- Make should ghat the isAlphaSub function works properly,
 -- which the other tests rely on to tell if the thing they test is working.
@@ -248,54 +248,55 @@ simpleInference = do
   assertExprFails badCall2
 
 
-functionInference :: Assertion
-functionInference = do
+functionInference :: Test
+functionInference =
   -- shared definitions
   let varX = E.Var [] "x"
+  in TestList
+     [ labeled "f() {}" $ do
+         let func0 = func "f" [] []
+         let type0 = Qual [] $ makeFuncType [] tUnit
+         assertDeclTypes type0 func0
 
-  -- f() { }
-  let func0 = func "f" [] []
-  let type0 = Qual [] $ makeFuncType [] tUnit
-  assertDeclTypes type0 func0
+     , labeled "f() { return 1.0; }" $ do
+         let func1 = func "f" [] [returnJust $ floatVal 1]
+         let type1 = Qual [] $ makeFuncType [] tFloat
+         assertDeclTypes type1 func1
 
-  -- f() { return 1.0; }
-  let func1 = func "f" [] [returnJust $ floatVal 1]
-  let type1 = Qual [] $ makeFuncType [] tFloat
-  assertDeclTypes type1 func1
+     , labeled "f(x) { return 1.0; }" $ do
+         let func2 = func "f" ["x"] [returnJust $ floatVal 1]
+         let type2 = Qual [] $ makeFuncType [tvar "a"] tFloat
+         assertDeclTypes type2 func2
 
-  -- f(x) { return 1.0; }
-  let func2 = func "f" ["x"] [returnJust $ floatVal 1]
-  let type2 = Qual [] $ makeFuncType [tvar "a"] tFloat
-  assertDeclTypes type2 func2
+     , labeled "f(x) { return x; }" $ do
+         let func3 = func "f" ["x"] [returnJust varX]
+         let type3 = Qual [] $ makeFuncType [tvar "a"] (tvar "a")
+         assertDeclTypes type3 func3
 
-  -- f(x) { return x; }
-  let func3 = func "f" ["x"] [returnJust varX]
-  let type3 = Qual [] $ makeFuncType [tvar "a"] (tvar "a")
-  assertDeclTypes type3 func3
+     , labeled "f(x) { return x + 1.0; }" $ do
+         let func4 = func "f" ["x"] [returnJust $ E.Binary [] E.Plus varX (floatVal 1)]
+         let type4 = Qual [] $ makeFuncType [tFloat] tFloat
+         assertDeclTypes type4 func4
 
-  -- f(x) { return x + 1.0; }
-  let func4 = func "f" ["x"] [returnJust $ E.Binary [] E.Plus varX (floatVal 1)]
-  let type4 = Qual [] $ makeFuncType [tFloat] tFloat
-  assertDeclTypes type4 func4
+     , labeled "f(x) { return x > 123.0; }" $ do
+         let func5 = func "f" ["x"] [returnJust $ E.Binary [] E.Less varX (floatVal 123.0)]
+         let type5 = Qual [] $ makeFuncType [tFloat] tBool
+         assertDeclTypes type5 func5
 
-  -- f(x) { return x > 123.0; }
-  let func5 = func "f" ["x"] [returnJust $ E.Binary [] E.Less varX (floatVal 123.0)]
-  let type5 = Qual [] $ makeFuncType [tFloat] tBool
-  assertDeclTypes type5 func5
+     , labeled "f(x) { return x && True; }" $ do
+         let funcBool = func "f" ["x"] [returnJust $ E.Binary [] E.BoolAnd varX (boolVal True)]
+         let typeBool = Qual [] $ makeFuncType [tBool] tBool
+         assertDeclTypes typeBool funcBool
 
-  -- f(x) { return x && True; }
-  let funcBool = func "f" ["x"] [returnJust $ E.Binary [] E.BoolAnd varX (boolVal True)]
-  let typeBool = Qual [] $ makeFuncType [tBool] tBool
-  assertDeclTypes typeBool funcBool
+     , labeled "f(x) { let y = x; return y; }" $ do
+         let letStmt = S.Let [] "y" Nothing (E.Var [] "x")
+         let returnStmt = returnJust (E.Var [] "y")
+         let funcLet = func "f" ["x"] [letStmt, returnStmt]
+         let idType = Qual [] $ makeFuncType [tvar "a"] (tvar "a")
+         assertDeclTypes idType funcLet
 
-  -- f(x) { let y = x; return y; }
-  let letStmt = S.Let [] "y" Nothing (E.Var [] "x")
-  let returnStmt = returnJust (E.Var [] "y")
-  let funcLet = func "f" ["x"] [letStmt, returnStmt]
-  let idType = Qual [] $ makeFuncType [tvar "a"] (tvar "a")
-  assertDeclTypes idType funcLet
-
-  -- TODO: Test assignment
+         -- TODO: Test assignment
+     ]
 
 
 whileLoop :: Assertion
