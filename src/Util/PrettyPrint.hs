@@ -1,6 +1,6 @@
 module Util.PrettyPrint where
 
-import Data.List (intercalate)
+import Util.Functions (commaSep)
 
 prettyPrint :: (PrettyPrint a) => a -> String
 prettyPrint x = printer 0 False x
@@ -15,4 +15,4 @@ instance (PrettyPrint a) => PrettyPrint [a] where
   printer indent verbose items =
     let printed = map (printer indent verbose) items
         filtered = [s | s <- printed, not $ null s]
-    in intercalate ", " filtered
+    in commaSep filtered

@@ -1,5 +1,7 @@
 module Util.Functions where
 
+import Data.List (intercalate)
+
 mapFst :: (a -> b) -> [(a, c)] ->  [(b, c)]
 mapFst f = map (applyFst f)
 
@@ -18,3 +20,6 @@ applySnd f (c, a) = (c, f a)
 
 swap :: (a, b) -> (b, a)
 swap (a, b) = (b, a)
+
+commaSep :: [String] -> String
+commaSep = intercalate ", "
