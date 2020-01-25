@@ -3,7 +3,8 @@ module Errors where
 import Data.List (intercalate)
 
 import Region
-import Types (Type, Kind, TyVar, Predicate, prettyPrint)
+import Types (Type, Kind, TyVar, Predicate)
+import Util.PrettyPrint
 
 data Error
   = Mismatch Type Type

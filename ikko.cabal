@@ -66,6 +66,7 @@ executable ikko
                 Region,
                 Types,
                 Util.DoOnce,
+                Util.PrettyPrint,
                 Util.Functions,
                 Util.Graph
 
@@ -109,6 +110,7 @@ Test-Suite test-first-pass
                   Region,
                   Types,
                   Util.DoOnce,
+                  Util.PrettyPrint,
                   Util.Functions
 
 Test-Suite test-parser
@@ -128,6 +130,7 @@ Test-Suite test-parser
                   Region,
                   Types,
                   Util.DoOnce,
+                  Util.PrettyPrint,
                   Util.Functions
 
 Test-Suite test-graph
@@ -139,6 +142,7 @@ Test-Suite test-graph
     ghc-options:         -j
     other-modules:
                   Util.DoOnce,
+                  Util.PrettyPrint,
                   Util.Functions,
                   Util.Graph
 
@@ -162,5 +166,6 @@ Test-Suite test-infer
                   Region,
                   Types,
                   Util.DoOnce,
+                  Util.PrettyPrint,
                   Util.Functions,
                   Util.Graph

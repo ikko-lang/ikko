@@ -8,6 +8,8 @@ import qualified Data.Set as Set
 
 import Debug.Trace
 
+import Util.PrettyPrint
+
 showTrace :: (Show a) => String -> a -> a
 showTrace s a = trace (s ++ ": " ++ show a) a
 
@@ -16,6 +18,14 @@ data Kind
   = Star
   | KFun Kind Kind
   deriving (Eq, Ord, Show)
+
+instance PrettyPrint Kind where
+  printer _ _ k = renderKind k
+
+renderKind :: Kind -> String
+renderKind Star = "*"
+renderKind (KFun Star k2) = "* -> " ++ renderKind k2
+renderKind (KFun k1 k2) = "(" ++ renderKind k1 ++ " -> " ++ renderKind k2
 
 -- Type is the internal representation of a type as used by the type system.
 -- Types that a user types in (no pun intended) are mapped to this sort of
@@ -165,6 +175,19 @@ data Scheme
   = Scheme [Kind] QualType
   deriving (Eq, Show)
 
+instance PrettyPrint Scheme where
+  printer _ verbose (Scheme kinds qt)=
+    if verbose && kinds /= []
+    then kindsComment kinds ++ " " ++ prettyPrint qt
+    else prettyPrint qt
+
+-- There's no syntax for kinds, so print them out as a comment so
+-- that the result sort-of makes sense
+kindsComment :: [Kind] -> String
+kindsComment ks =
+  let inner = intercalate ", " $ map prettyPrint ks
+  in "/* kinds: " ++ inner ++ "*/"
+
 instance Types Scheme where
   apply sub (Scheme ks t) = Scheme ks (apply sub t)
   freeTypeVars (Scheme _ t) = freeTypeVars t
@@ -183,8 +206,12 @@ fromMaybe :: a -> Maybe a -> a
 fromMaybe _ (Just x) = x
 fromMaybe d Nothing  = d
 
-prettyPrint :: Type -> String
-prettyPrint t = case t of
+instance PrettyPrint Type where
+  printer _ _ t =
+    prettyPrintType t
+
+prettyPrintType :: Type -> String
+prettyPrintType t = case t of
   TCon name _      ->
     name
   TFunc _ _        ->
@@ -225,9 +252,19 @@ type QualType = Qualified Type
 qualify :: Type -> QualType
 qualify = Qual []
 
+instance PrettyPrint Predicate where
+  printer _ _ (Pred c t) =
+    c ++ " " ++ prettyPrint t
+
 instance Types Predicate where
   apply sub (Pred s t) = Pred s (apply sub t)
   freeTypeVars (Pred _ t) = freeTypeVars t
+
+instance (PrettyPrint t) => PrettyPrint (Qualified t) where
+  printer _ _ (Qual ps t)=
+    if null ps
+    then prettyPrint t
+    else "(" ++ intercalate ", " (map prettyPrint ps) ++ ") => " ++ prettyPrint t
 
 instance (Types t) => Types (Qualified t) where
   apply sub (Qual ps t) = Qual (apply sub ps) (apply sub t)

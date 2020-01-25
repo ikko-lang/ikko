@@ -3,6 +3,7 @@ module AST.Annotation where
 import Region (Region)
 import Types (Type)
 import Util.DoOnce (evalDoOnce, isFirst)
+import Util.PrettyPrint
 
 class (Functor f, Foldable f, Traversable f) => Annotated f where
   getAnnotation :: f a -> a
@@ -21,6 +22,10 @@ class (Functor f, Foldable f, Traversable f) => Annotated f where
     in evalDoOnce $ traverse replaceFirst ast
 
 type Annotation = [Metadata]
+
+instance PrettyPrint Metadata where
+  printer _ _       (Location _) = ""
+  printer _ verbose (Typed t)    = printer 0 verbose t
 
 emptyAnnotation :: Annotation
 emptyAnnotation = []
