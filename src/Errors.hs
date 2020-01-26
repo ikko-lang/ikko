@@ -4,7 +4,7 @@ import Data.List (intercalate)
 
 import Region
 import Types (Type, Kind, TyVar, Predicate)
-import Util.PrettyPrint
+import Util.PrettyPrint (render)
 
 data Error
   = Mismatch Type Type
@@ -41,9 +41,9 @@ renderError err fileContent = case err of
   Unreachable fname ->
     "unreachable code in function " ++ fname
   Mismatch t1 t2 ->
-    "Type mismatch between " ++ prettyPrint t1 ++ " and " ++ prettyPrint t2
+    "Type mismatch between " ++ render t1 ++ " and " ++ render t2
   WrongType t1 s ->
-    "Wrong type " ++ prettyPrint t1 ++ " " ++ s
+    "Wrong type " ++ render t1 ++ " " ++ s
   _ ->
     show err
 

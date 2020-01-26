@@ -1,9 +1,11 @@
 module AST.Annotation where
 
+import Control.Monad (unless)
+
 import Region (Region)
 import Types (Type)
 import Util.DoOnce (evalDoOnce, isFirst)
-import Util.PrettyPrint
+import Util.PrettyPrint (Render, PrettyPrinter, render, writeComment)
 
 class (Functor f, Foldable f, Traversable f) => Annotated f where
   getAnnotation :: f a -> a
@@ -23,9 +25,9 @@ class (Functor f, Foldable f, Traversable f) => Annotated f where
 
 type Annotation = [Metadata]
 
-instance PrettyPrint Metadata where
-  printer _ _       (Location _) = ""
-  printer _ verbose (Typed t)    = printer 0 verbose t
+instance Render Metadata where
+  render (Location _) = ""
+  render (Typed t)    = render t
 
 emptyAnnotation :: Annotation
 emptyAnnotation = []
@@ -56,6 +58,14 @@ getLocation :: (Annotated a) => a Annotation -> Maybe Region
 getLocation node =
   listToMaybe [r | Location r <- getAnnotation node]
 
+-- Adds the annotated type as a comment, assuming there is an annotated type.
+-- The comment also contains the rendered partial expression, so you can tell
+-- multiple comments apart.
+emitAnnotation :: (Annotated f, Render a) => f a -> String -> PrettyPrinter ()
+emitAnnotation ast rendered = do
+  let annotation = render $ getAnnotation ast
+  unless (null annotation) $
+    writeComment ("`" ++ rendered ++ "` has type: " ++ annotation)
 
 listToMaybe :: [a] -> Maybe a
 listToMaybe []    = Nothing

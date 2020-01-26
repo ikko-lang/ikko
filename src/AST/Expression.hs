@@ -2,10 +2,10 @@
 
 module AST.Expression where
 
-import AST.Annotation (Annotated, getAnnotation)
+import AST.Annotation (Annotated, emitAnnotation)
 import AST.Type (Type)
 
-import Util.PrettyPrint
+import Util.PrettyPrint (Render, PrettyPrint, PrettyPrinter, printLines)
 import Util.Functions (commaSep)
 
 data Value a
@@ -19,28 +19,31 @@ data Value a
 instance Annotated Value where
   --  use all default methods
 
-instance (PrettyPrint a) => PrettyPrint (Value a) where
-  printer _ verbose val =
-    let printedVal = case val of
-          StrVal _ s -> "\"" ++ show s ++ "\""
-          BoolVal _ b -> show b
-          IntVal _ i -> show i
-          FloatVal _ f -> show f
-          StructVal _ name fields -> name ++ "{" ++ showFields verbose fields ++ "}"
-    in printedVal ++ annotationSuffix verbose val
+instance (Render a) => PrettyPrint (Value a) where
+  printLines val = do
+    rendered <- case  val of
+                 StrVal    _ s ->
+                   return $ "\"" ++ show s ++ "\""
+                 BoolVal   _ b ->
+                   return $ show b
+                 IntVal    _ i ->
+                   return $ show i
+                 FloatVal  _ f ->
+                   return $ show f
+                 StructVal _ name fields -> do
+                   inner <- showFields fields
+                   return $ name ++ "{" ++ inner ++ "}"
+    emitAnnotation val rendered
+    return rendered
 
-annotationSuffix verbose a =
-  if verbose
-  then let annotation = prettyPrint $ getAnnotation a
-       in if not (null annotation)
-          then " /* type: " ++ annotation ++ " */"
-          else ""
-  else ""
+showFields :: (Render a) => [(String, Expression a)] -> PrettyPrinter String
+showFields fields = do
+  fieldStrings <- mapM showField fields
+  return $ commaSep fieldStrings
 
-showFields :: (PrettyPrint a) => Bool -> [(String, Expression a)] -> String
-showFields verbose fields =
-  let showField (name, expr) = name ++ ": " ++ (printer 0 verbose expr)
-  in commaSep $ map showField fields
+showField (name, expr) = do
+  exprString <- printLines expr
+  return $ name ++ ": " ++ exprString
 
 data Expression a
   = Paren   a (Expression a)
@@ -56,21 +59,38 @@ data Expression a
 instance Annotated Expression where
   --  use all default methods
 
-instance (PrettyPrint a) => PrettyPrint (Expression a) where
-  printer _ verbose expr =
-    let printed = case expr of
-          Paren _ e1 -> "(" ++ printer 0 verbose e1 ++ ")"
-          Val _ v -> printer 0 verbose v
-          Unary _ uop e1 -> prettyPrint uop ++ " " ++ printer 0 verbose e1
-          Binary _ bop e1 e2 ->
-            printer 0 verbose e1 ++ " " ++
-            prettyPrint bop ++ " " ++
-            printer 0 verbose e2
-          Call _ fn args -> undefined
-          Cast _ t e1 -> undefined
-          Var _ name -> name
-          Access _ e name -> undefined
-    in printed ++ annotationSuffix verbose expr
+instance (Render a) => PrettyPrint (Expression a) where
+  printLines expr = do
+    rendered <- case expr of
+          Paren  _ e1        -> do
+            inner <- printLines e1
+            return $ "(" ++ inner ++ ")"
+          Val    _ v         ->
+            printLines v
+          Unary  _ uop e1    -> do
+            uopS <- printLines uop
+            e1S <- printLines e1
+            return $ uopS ++ " " ++ e1S
+          Binary _ bop e1 e2 -> do
+            e1S  <- printLines e1
+            bopS <- printLines bop
+            e2S  <- printLines e2
+            return $ e1S ++ " " ++ bopS ++ " " ++ e2S
+          Call   _ fn args   -> do
+            fnS   <- printLines fn
+            argsS <- mapM printLines args
+            return $ fnS ++ "(" ++ commaSep argsS ++ ")"
+          Cast   _ t e1      -> do
+            e1S <- printLines e1
+            return $ t ++ "(" ++ e1S ++ ")"
+          Var    _ name      ->
+            return name
+          Access _ e1 name    -> do
+            e1S <- printLines e1
+            return $ e1S ++ "." ++ name
+
+    emitAnnotation expr rendered
+    return rendered
 
 data UnaryOp
   = BitInvert
@@ -78,8 +98,9 @@ data UnaryOp
   deriving (Eq, Show)
 
 instance PrettyPrint UnaryOp where
-  printer _ _ BitInvert = "~"
-  printer _ _ BoolNot   = "!"
+  printLines uop = return $ case uop of
+    BitInvert -> "~"
+    BoolNot   -> "!"
 
 data BinOp
   = Plus
@@ -104,4 +125,4 @@ data BinOp
   deriving (Eq, Show)
 
 instance PrettyPrint BinOp where
-  printer _ _ bop = undefined -- TODO
+  printLines uop = undefined

@@ -95,7 +95,7 @@ executable ikko
 Test-Suite test-first-pass
     type:    exitcode-stdio-1.0
     main-is: test-FirstPass.hs
-    build-depends: base, containers, HUnit
+    build-depends: base, containers, HUnit, mtl
     hs-source-dirs:      src
     default-language:    Haskell2010
     ghc-options:         -j -O0
@@ -116,7 +116,7 @@ Test-Suite test-first-pass
 Test-Suite test-parser
     type:    exitcode-stdio-1.0
     main-is: test-Parser.hs
-    build-depends: base, containers, parsec, indents >= 0.5, HUnit
+    build-depends: base, containers, parsec, indents >= 0.5, HUnit, mtl
     hs-source-dirs:      src
     default-language:    Haskell2010
     ghc-options:         -j -O0
