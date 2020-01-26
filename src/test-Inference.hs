@@ -59,11 +59,16 @@ import Inference
   , splitExplicit
   , getExplicitType
   , InferResult(..)
-  , BindGroup(..) )
+  , BindGroup(..)
+  , Preds )
 
 import Errors
   ( Error(..)
   , Result )
+
+import Util.PrettyPrint
+  ( PrettyPrint
+  , prettyPrint )
 
 
 type DeclarationT     = D.Declaration     Annotation
@@ -79,8 +84,11 @@ assertRight (Left _) = assertFailure "expected Right, got Left"
 assertRight _        = return ()
 
 assertLeft :: (Show b) => Either a b -> Assertion
-assertLeft (Right b) = assertFailure $ "expected Left, got Right " ++ show b
-assertLeft _         = return ()
+assertLeft = assertLeftPrinter show
+
+assertLeftPrinter :: (b -> String) -> Either a b -> Assertion
+assertLeftPrinter printer (Right b) = assertFailure $ "expected Left, got Right\n" ++ printer b
+assertLeftPrinter _       _         = return ()
 
 assertFalse = assertEqual "" False
 assertTrue = assertEqual "" True
@@ -202,7 +210,7 @@ recursiveUnification = do
 gettingExplicitType :: Assertion
 gettingExplicitType = do
   let tdecl = (["A"], T.Function [] [T.TypeName [] "A"] (T.TypeName [] "A"))
-  let body = S.Block [] [S.Return [] $ Just $ E.Var [] "a"] 
+  let body = S.Block [] [S.Return [] $ Just $ E.Var [] "a"]
   let decl = D.Function [] "identity" (Just tdecl) ["a"] body
   let result = inferEmpty $ getExplicitType ("identity", decl)
   let sch = Scheme [Star] (Qual [] (TAp (TAp (TFunc 1 (kindN 2)) (TGen 0 Star)) (TGen 0 Star)))
@@ -584,7 +592,7 @@ assertExprTypesP expr t ps = assertTypesP t ps expr inferExpr
 
 
 assertExprFails :: ExpressionT -> Assertion
-assertExprFails expr = assertFails expr inferExpr
+assertExprFails expr = assertFails3 expr inferExpr
 
 
 assertDeclTypes :: QualType -> DeclarationT -> Assertion
@@ -628,7 +636,20 @@ assertTypes t ast inferFn = do
 
 assertFails ast inferFn = do
   let result = inferEmpty $ inferFn startingEnv ast
-  assertLeft result
+  assertLeftPrinter inferResultPrinter result
+
+inferResultPrinter :: (PrettyPrint a) => (a, Preds) -> String
+inferResultPrinter (printable, preds) =
+  prettyPrint printable ++ "\n" ++ show preds
+
+
+assertFails3 ast inferFn = do
+  let result = inferEmpty $ inferFn startingEnv ast
+  assertLeftPrinter inferResultPrinter3 result
+
+inferResultPrinter3 :: (PrettyPrint a, Show b) => (a, b, Preds) -> String
+inferResultPrinter3 (printable, t, preds) =
+  prettyPrint printable ++ "\n" ++ show t ++ "\n" ++ show preds
 
 
 -- TODO: This should really be "assert matches" not "assert unifies"

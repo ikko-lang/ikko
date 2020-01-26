@@ -45,7 +45,7 @@ prettyPrintStatement stmt = case stmt of
     writeLine $ "let " ++ name ++ " = " ++ exprS
   Assign _ names expr -> do
     exprS <- printLines expr
-    writeLine $ (intercalate "." names) ++ " = " ++ exprS
+    writeLine $ intercalate "." names ++ " = " ++ exprS
   Block _ stmts -> do
     increaseIndent
     mapM_ printLines stmts

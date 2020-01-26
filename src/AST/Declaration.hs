@@ -35,7 +35,7 @@ instance (Render a) => PrettyPrint (Declaration a) where
         writeLine $ "function " ++ name ++ "(" ++ commaSep args ++ "):"
         _ <- printLines stmt
         return ()
-      TypeDef  _ _ _              ->
+      TypeDef{}                   ->
         return () -- ignore these
 
     return ""
