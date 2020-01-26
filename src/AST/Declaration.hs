@@ -7,6 +7,9 @@ import AST.Expression (Expression)
 import AST.Statement (Statement)
 import AST.Type (Type, TypeDecl, TypeDef, defName)
 
+import Util.PrettyPrint (Render, PrettyPrint, render, printLines, writeLine, writeComment)
+import Util.Functions (commaSep)
+
 type File a = [Declaration a]
 
 data Declaration a
@@ -17,6 +20,25 @@ data Declaration a
 
 instance Annotated Declaration where
   --  use all default methods
+
+instance (Render a) => PrettyPrint (Declaration a) where
+  printLines decl = do
+    writeLine "" -- blank separator
+
+    case decl of
+      Let      a name _ expr      -> do
+        exprS <- printLines expr
+        writeComment $ "type of " ++ name ++ ": " ++ render a
+        writeLine $ "let " ++ name ++ " = " ++ exprS
+      Function a name _ args stmt -> do
+        writeComment $ "type of " ++ name ++ ": " ++ render a
+        writeLine $ "function " ++ name ++ "(" ++ commaSep args ++ "):"
+        _ <- printLines stmt
+        return ()
+      TypeDef  _ _ _              ->
+        return () -- ignore these
+
+    return ""
 
 -- This is a bit gross, but whatever
 -- (generics, TFunc _ _)
