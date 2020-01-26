@@ -70,3 +70,13 @@ emitAnnotation ast rendered = do
 listToMaybe :: [a] -> Maybe a
 listToMaybe []    = Nothing
 listToMaybe (a:_) = Just a
+
+mapType :: (Annotated f) => (Type -> Type) -> f Annotation -> f Annotation
+mapType f ast =
+  let annotations = getAnnotation ast
+      updated = map (modifyType f) annotations
+  in setAnnotation updated ast
+
+modifyType :: (Type -> Type) -> Metadata -> Metadata
+modifyType f (Typed t) = Typed (f t)
+modifyType _ other     = other

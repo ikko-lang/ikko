@@ -31,7 +31,7 @@ prettyPrint x = evalState (runPrint x) startingState
 
 runPrint :: (PrettyPrint a) => a -> PrettyPrinter String
 runPrint x = do
-  printLines x
+  _ <- printLines x
   getPrinted
 
 class PrettyPrint a where
@@ -68,8 +68,8 @@ writeComment comment = writeLine $ "// " ++ comment
 
 writeLine :: String -> PrettyPrinter ()
 writeLine s = do
-  indent <- gets indent
-  writeRawLine (addIndent indent s)
+  indented <- gets indent
+  writeRawLine (addIndent indented s)
 
 -- writeRawLine is writeLine minus indentation handling
 writeRawLine :: String -> PrettyPrinter ()

@@ -367,7 +367,7 @@ inferBindGroup bg env = do
   let env1 = addToEnv explicitBindingTypes env
   let impls = implicitBindings bg
 
-  (decls1, env2, ps) <- inferGroups impls env1
+  (decls1, env2, ps) <- inferGroups env1 impls
   let env' = addToEnv env2 env1
   decls2 <- tiExpls expls env'
   return (decls1 ++ decls2, env')
@@ -439,18 +439,18 @@ genericMap tnames = do
   gens <- mapM (const newStarVar) tnames
   return $ Map.fromList $ zip tnames gens
 
-inferGroups :: [[(String, DeclarationT)]] -> Environment ->
+inferGroups :: Environment -> [[(String, DeclarationT)]] ->
                InferM (TypedDecls, Environment, Preds)
-inferGroups []     _   =
+inferGroups _   []     =
   return ([], Map.empty, [])
-inferGroups (g:gs) env = do
-  (typed, env1, ps1) <- inferGroup g env
-  (rest, env2, ps2) <- inferGroups gs (Map.union env1 env)
+inferGroups env (g:gs) = do
+  (typed, env1, ps1) <- inferGroup env g
+  (rest, env2, ps2) <- inferGroups (Map.union env1 env) gs
   return (typed ++ rest, Map.union env1 env2, ps1 ++ ps2)
 
-inferGroup :: [(String, DeclarationT)] -> Environment ->
+inferGroup :: Environment -> [(String, DeclarationT)] ->
               InferM (TypedDecls, Environment, Preds)
-inferGroup impls env = do
+inferGroup env impls = do
   -- Map each binding to a new type variable while recursively typing these bindings
   ts <- mapM (const newStarVar) impls
   let bindingNames = map fst impls

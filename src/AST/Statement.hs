@@ -62,7 +62,7 @@ prettyPrintStatement stmt = case stmt of
     case e of
       Nothing -> return ()
       Just st -> do
-        printLines st
+        _ <- printLines st
         return ()
   While _ test stmts -> do
     testS <- printLines test
@@ -92,7 +92,7 @@ instance (Render a) => PrettyPrint (MatchCase a) where
     exprS <- printLines matchExpr
     writeLine $ exprS ++ ":"
     increaseIndent
-    printLines stmt
+    _ <- printLines stmt
     decreaseIndent
     return ""
 
@@ -118,6 +118,6 @@ prettyPrintMatchExpr matchExpr = case matchExpr of
     return "_"
   MatchVariable _ var ->
     return var
-  MatchStructure _ const exprs -> do
+  MatchStructure _ cnst exprs -> do
     exprsS <- mapM printLines exprs
-    return $ const ++ "(" ++ commaSep exprsS ++ ")"
+    return $ cnst ++ "(" ++ commaSep exprsS ++ ")"

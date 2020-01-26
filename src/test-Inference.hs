@@ -58,6 +58,7 @@ import Inference
   , freshInst
   , splitExplicit
   , getExplicitType
+  , Environment
   , InferResult(..)
   , BindGroup(..)
   , Preds )
@@ -68,7 +69,8 @@ import Errors
 
 import Util.PrettyPrint
   ( PrettyPrint
-  , prettyPrint )
+  , prettyPrint
+  , render )
 
 
 type DeclarationT     = D.Declaration     Annotation
@@ -119,7 +121,7 @@ tests =
   , ts "no higher order polymorphism" noHigherOrderPolymorphism
   , ts "infinite type" infiniteType
   , ts "finding dependencies" findDependencies
-  , ts "simple module" simpleModule
+  , TestLabel "simple module" simpleModule
   , ts "explicit let binding" explicitLetBinding
   , ts "explicitly typed function" explicitFunctionBinding
   ]
@@ -474,52 +476,56 @@ findDependencies = do
   -- TODO: Test shadowing via let statements
 
 
-simpleModule :: Assertion
-simpleModule = do
+simpleModule :: Test
+simpleModule =
   let varF = E.Var [] "f"
-  let varN = E.Var [] "n"
-  let varX = E.Var [] "x"
-  let varID = E.Var [] "id"
+      varN = E.Var [] "n"
+      varX = E.Var [] "x"
+      varID = E.Var [] "id"
+      identity = func "id" ["x"] [returnJust varX]
+      idType = Scheme [Star] $ Qual [] $ makeFuncType [tgenN 0] (tgenN 0)
+  in TestList
+     [ labeled "f(n) { return n + 1; }" $ do
+         -- Test a super basic module
+         -- f(n) { return n + 1; }
+         let nPlus1 = func "f" ["n"] [returnJust $ E.Binary [] E.Plus varN (intVal 1)]
+         let result = inferModule $ makeModule [("f", nPlus1)]
+         let intFn = Scheme [Star] $ Qual [Pred "Num" $ tgenN 0] $ makeFuncType [tgenN 0] (tgenN 0)
+         assertModuleTypes "f" intFn result
 
-  -- Test a super basic module
-  -- f(n) { return n + 1; }
-  let nPlus1 = func "f" ["n"] [returnJust $ E.Binary [] E.Plus varN (intVal 1)]
-  let result1 = inferModule $ makeModule [("f", nPlus1)]
-  let intFn = Scheme [Star] $ Qual [Pred "Num" $ tgenN 0] $ makeFuncType [tgenN 0] (tgenN 0)
-  assertModuleTypes "f" intFn result1
+     , labeled "id(x) { return x; }" $ do
+         -- Test basic let-polymorphism
+         -- id(x) { return x; }
+         let result = inferModule $ makeModule [("id", identity)]
+         assertModuleTypes "id" idType result
 
-  -- Test basic let-polymorphism
-  -- id(x) { return x; }
-  let identity = func "id" ["x"] [returnJust varX]
-  let result2 = inferModule $ makeModule [("id", identity)]
-  let idType = Scheme [Star] $ Qual [] $ makeFuncType [tgenN 0] (tgenN 0)
-  -- assertModuleTypes "id" idType result2
+     , labeled "id(x) { return x; }, f(n) { return id(n > id(3)); }" $ do
+         -- Test usage of let-polymorphism
+         -- id(x) { return x; }
+         -- f(n) { return id(n > id(3)); }
+         let id3 = E.Call [] varID [intVal 3]
+         let idExpr = E.Call [] varID [E.Binary [] E.Greater varN id3]
+         let fN = func "f" ["n"] [returnJust idExpr]
+         let result = inferModule $ makeModule [("f", fN), ("id", identity)]
+         let fNType = Scheme [] $ Qual []  $ makeFuncType [tInt] tBool
+         assertModuleTypes "f" fNType result
+         assertModuleTypes "id" idType result
 
-  -- Test usage of let-polymorphism
-  -- id(x) { return x; }
-  -- f(n) { return id(n > id(3)); }
-  let id3 = E.Call [] varID [intVal 3]
-  let idExpr = E.Call [] varID [E.Binary [] E.Greater varN id3]
-  let fN = func "f" ["n"] [returnJust idExpr]
-  let result3 = inferModule $ makeModule [("f", fN), ("id", identity)]
-  let fNType = Scheme [] $ Qual []  $ makeFuncType [tInt] tBool
-  -- assertModuleTypes "f" fNType result3
-  -- assertModuleTypes "id" idType result3
-
-  -- Test the fact that mutually-recursive functions
-  -- are sometimes less general than you'd expect
-  -- id(x) { f(1); return x; }
-  -- f(x) { return id(x) > 2; }
-  let callF = S.Expr [] $ E.Call [] varF [intVal 1]
-  let identityCallingF = func "id" ["x"] [callF, returnJust varX]
-  let idOfX = E.Call [] varID [varX]
-  let fCallsID = func "f" ["x"] [returnJust $ E.Binary [] E.Greater idOfX (intVal 2)]
-  let result4 = inferModule $ makeModule [("f", fCallsID), ("id", identityCallingF)]
-  let lessGeneralIDType = Scheme [] $ Qual []  $ makeFuncType [tInt] tInt
-  let fCallsIDType = Scheme [] $ Qual []  $ makeFuncType [tInt] tBool
-  -- assertModuleTypes "f" fCallsIDType result4
-  -- assertModuleTypes "id" lessGeneralIDType result4
-  return ()
+     , labeled "id(x) { f(1); return x; }, f(x) { return id(x) > 2; }" $ do
+         -- Test the fact that mutually-recursive functions
+         -- are sometimes less general than you'd expect
+         -- id(x) { f(1); return x; }
+         -- f(x) { return id(x) > 2; }
+         let callF = S.Expr [] $ E.Call [] varF [intVal 1]
+         let identityCallingF = func "id" ["x"] [callF, returnJust varX]
+         let idOfX = E.Call [] varID [varX]
+         let fCallsID = func "f" ["x"] [returnJust $ E.Binary [] E.Greater idOfX (intVal 2)]
+         let result = inferModule $ makeModule [("f", fCallsID), ("id", identityCallingF)]
+         let lessGeneralIDType = Scheme [] $ Qual []  $ makeFuncType [tInt] tInt
+         let fCallsIDType = Scheme [] $ Qual []  $ makeFuncType [tInt] tBool
+         assertModuleTypes "f" fCallsIDType result
+         assertModuleTypes "id" lessGeneralIDType result
+     ]
 
 
 explicitLetBinding :: Assertion
@@ -598,7 +604,7 @@ assertExprFails expr = assertFails3 expr inferExpr
 assertDeclTypes :: QualType -> DeclarationT -> Assertion
 assertDeclTypes (Qual ps t) ast = do
   let name = "f" -- TODO: Take from argument
-  let result = inferWithSub $ inferGroup [(name, ast)] startingEnv
+  let result = inferWithSub $ inferGroup startingEnv [(name, ast)]
   assertRight result
   let (Right ((typed, env, preds), sub)) = result
   let (Just (Scheme _ (Qual resultPS resultT))) = Map.lookup name env
@@ -608,7 +614,20 @@ assertDeclTypes (Qual ps t) ast = do
   assertEqual "" ps resultPS
 
 assertDeclFails :: DeclarationT -> Assertion
-assertDeclFails decl = assertFails decl inferDecl
+-- assertDeclFails decl = assertFails decl inferDecl
+assertDeclFails decl =
+  assertFailsP [("test", decl)] inferGroup groupPrinter
+
+groupPrinter :: ([(String, DeclarationT, Preds)], Environment, Preds) -> String
+groupPrinter (decls, env, preds) =
+  unlines (map printDecl decls) ++
+  "\nenv: " ++ show env ++
+  "\ndeferred preds: " ++ show preds
+
+printDecl :: (String, DeclarationT, Preds) -> String
+printDecl (_, decl, preds) =
+  prettyPrint decl ++ "\n" ++
+  "decl preds: " ++ render preds
 
 assertTypesP t ps ast inferFn = do
   let result = inferEmpty $ inferFn startingEnv ast
@@ -633,10 +652,11 @@ assertTypes t ast inferFn = do
   let (Just resultType) = getType typed
   assertMatches t resultType
 
-
-assertFails ast inferFn = do
+assertFailsP ast inferFn printer = do
   let result = inferEmpty $ inferFn startingEnv ast
-  assertLeftPrinter inferResultPrinter result
+  assertLeftPrinter printer result
+
+assertFails ast inferFn = assertFailsP ast inferFn inferResultPrinter
 
 inferResultPrinter :: (PrettyPrint a) => (a, Preds) -> String
 inferResultPrinter (printable, preds) =

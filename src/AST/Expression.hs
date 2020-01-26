@@ -41,6 +41,7 @@ showFields fields = do
   fieldStrings <- mapM showField fields
   return $ commaSep fieldStrings
 
+showField :: (PrettyPrint a) => (String, a) -> PrettyPrinter String
 showField (name, expr) = do
   exprString <- printLines expr
   return $ name ++ ": " ++ exprString
