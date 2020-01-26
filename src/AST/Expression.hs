@@ -125,4 +125,23 @@ data BinOp
   deriving (Eq, Show)
 
 instance PrettyPrint BinOp where
-  printLines uop = undefined
+  printLines bop = return $ case bop of
+                              Plus      -> "+"
+                              Minus     -> "-"
+                              Times     -> "*"
+                              Divide    -> "/"
+                              Mod       -> "%"
+                              Power     -> "**"
+                              BitAnd    -> "&"
+                              BitOr     -> "|"
+                              BitXor    -> "^"
+                              BoolAnd   -> "&&"
+                              BoolOr    -> "||"
+                              Eq        -> "=="
+                              NotEq     -> "!="
+                              Less      -> "<"
+                              LessEq    -> "<="
+                              Greater   -> ">"
+                              GreaterEq -> ">="
+                              LShift    -> "<<"
+                              RShift    -> ">>"

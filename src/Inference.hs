@@ -22,6 +22,7 @@ module Inference
   , Environment
   , TypedDecls
   , InferResult(..)
+  , Preds
   ) where
 
 

@@ -53,15 +53,15 @@ startingState =
 
 getPrinted :: PrettyPrinter String
 getPrinted =
-  (unlines . reverse) <$> gets linesBackwards
+  unlines . reverse <$> gets linesBackwards
 
 increaseIndent :: PrettyPrinter ()
 increaseIndent =
-  modify (\ps -> ps { indent=(indent ps + 1) })
+  modify (\ps -> ps { indent=indent ps + 1 })
 
 decreaseIndent :: PrettyPrinter ()
 decreaseIndent =
-  modify (\ps -> ps { indent=(indent ps - 1) })
+  modify (\ps -> ps { indent=indent ps - 1 })
 
 writeComment :: String -> PrettyPrinter ()
 writeComment comment = writeLine $ "// " ++ comment
@@ -74,7 +74,7 @@ writeLine s = do
 -- writeRawLine is writeLine minus indentation handling
 writeRawLine :: String -> PrettyPrinter ()
 writeRawLine s = modify addLine
-  where addLine ps = ps { linesBackwards=(s : linesBackwards ps) }
+  where addLine ps = ps { linesBackwards=s : linesBackwards ps }
 
 addIndent :: Int -> String -> String
-addIndent n s = (take n $ repeat ' ') ++ s
+addIndent n s = replicate n ' ' ++ s
