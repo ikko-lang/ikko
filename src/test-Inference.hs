@@ -521,8 +521,8 @@ simpleModule =
          let idOfX = E.Call [] varID [varX]
          let fCallsID = func "f" ["x"] [returnJust $ E.Binary [] E.Greater idOfX (intVal 2)]
          let result = inferModule $ makeModule [("f", fCallsID), ("id", identityCallingF)]
-         let lessGeneralIDType = Scheme [] $ Qual []  $ makeFuncType [tInt] tInt
-         let fCallsIDType = Scheme [] $ Qual []  $ makeFuncType [tInt] tBool
+         let lessGeneralIDType = Scheme [] $ Qual [] $ makeFuncType [tInt] tInt
+         let fCallsIDType = Scheme [] $ Qual [] $ makeFuncType [tInt] tBool
          assertModuleTypes "f" fCallsIDType result
          assertModuleTypes "id" lessGeneralIDType result
      ]

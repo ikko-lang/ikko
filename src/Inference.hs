@@ -466,12 +466,12 @@ inferGroup env impls = do
   sub <- getSub
   let preds' = apply sub (concat preds)
   let subbed = map (apply sub) ts
-  let fs = freeTypeVars (apply sub env)
+  let fs = freeTypeVars (apply sub (showTrace "env" env))
   let vss = map freeTypeVars subbed
   let gs = Set.difference (foldr1 Set.union vss) fs
   ce <- getClassEnv
   (deferred, retained) <- split ce fs (foldr1 Set.intersection vss) preds'
-  let schemes = map (quantify fs . Qual retained) subbed
+  let schemes = map (quantify (showTrace "gs" gs) . Qual retained) subbed
   let resultEnv = Map.fromList $ zip bindingNames schemes
   return (typedDecls, resultEnv, deferred)
 
