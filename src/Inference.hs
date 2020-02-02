@@ -1262,9 +1262,8 @@ requireEq a b = require $ a == b
 
 mustClass :: ClassEnv -> String -> Class
 mustClass ce cls =
-  case Map.lookup cls (classes ce) of
-    Just c  -> c
-    Nothing -> error $ "must have class " ++ cls
+  fromMaybe (error $ "must have class " ++ cls)
+    (Map.lookup cls (classes ce))
 
 super :: ClassEnv -> String -> [String]
 super ce cls = superclasses $ mustClass ce cls
