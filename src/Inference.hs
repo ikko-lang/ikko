@@ -12,6 +12,8 @@ module Inference
   , inferGroup
   , unifies
   , alphaSubstitues
+  , genSubstitutes
+  , getVarPairs
   , makeBindGroup
   , implicitBindings
   , explicitBindings
@@ -471,7 +473,7 @@ inferGroup env impls = do
   let gs = Set.difference (foldr1 Set.union vss) fs
   ce <- getClassEnv
   (deferred, retained) <- split ce fs (foldr1 Set.intersection vss) preds'
-  let schemes = map (quantify fs . Qual retained) subbed
+  let schemes = map (quantify gs . Qual retained) subbed
   let resultEnv = Map.fromList $ zip bindingNames schemes
   return (typedDecls, resultEnv, deferred)
 
@@ -1226,10 +1228,8 @@ getGenPairs t1 t2 = case (t1, t2) of
 
 getVarPairs :: Type -> Type -> Maybe [(String, String)]
 getVarPairs t1 t2 = case (t1, t2) of
-  (TGen _ _, _) ->
-    Nothing
-  (_, TGen _ _) ->
-    Nothing
+  (TGen a _, TGen b _) ->
+    if a == b then return [] else Nothing
   (TCon cA kA, TCon cB kB) -> do
     requireEq cA cB
     requireEq kA kB
