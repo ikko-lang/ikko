@@ -373,7 +373,8 @@ inferBindGroup bg env = do
   let env' = addToEnv env2 env1
   decls2 <- tiExpls expls env'
   return (decls1 ++ decls2, env')
--- TODO: Return predicates, then apply defaulting at the top level
+  -- TODO: Return predicates, then apply defaulting at the top level
+  -- (the `ps` variable should be used)b
 
 tiExpls :: [(String, DeclarationT)] -> Environment -> InferM TypedDecls
 tiExpls expls env = case expls of
@@ -423,14 +424,14 @@ getExplicitType (name, decl) = case decl of
   D.Let _ _ mtdecl _ -> do
     let (Just tdecl) = mtdecl
     (t, ps) <- withLocations [decl] $ typeFromDecl Map.empty tdecl
-    return (name, asScheme t)
+    return (name, Scheme [] $ Qual ps t)
 
   D.Function _ _ mgendecl _ _ -> do
     let Just (gens, tdecl) = mgendecl
     gmap <- genericMap gens
     (t, ps) <- withLocations [decl] $ typeFromDecl gmap tdecl
     let varSet = freeTypeVars $ Map.elems gmap
-    return (name, quantify varSet $ Qual [] t)
+    return (name, quantify varSet $ Qual ps t)
 
   D.TypeDef{} ->
     error "shouldn't see a typedef here"
@@ -477,8 +478,10 @@ inferGroup env impls = do
   let resultEnv = Map.fromList $ zip bindingNames schemes
   return (typedDecls, resultEnv, deferred)
 
+{-
 showTrace :: (Show a) => String -> a -> a
 showTrace s a = trace (s ++ ": " ++ show a) a
+-}
 
 inferDecls :: Environment -> [(String, DeclarationT)] -> [Type] -> InferM TypedDecls
 inferDecls env decls ts = mapM infer (zip decls ts)
@@ -601,7 +604,7 @@ inferStmt env stmt = case stmt of
        -- TODO: not quite right, since this may result in too narrow of a type
        -- getting assigned, but it's good enough for now
        withLocations [stmt] $ unify exprT varT
-       return (S.Assign a names expr', NeverReturns, ps)
+       return (S.Assign a names expr', NeverReturns, ps ++ ps2)
      (var:fields) -> do
        (expr', exprT, ps1) <- inferExpr env expr
 
@@ -697,7 +700,7 @@ inferMatchExpr env targetType matchExpr = case matchExpr of
 
     sub2 <- getSub
     let structType = apply sub2 structT
-    return (addType structType $ S.MatchStructure a enumName typedFields, binds, ps)
+    return (addType structType $ S.MatchStructure a enumName typedFields, binds, ps ++ ps2)
 
 
 destructFunctionType :: Type -> InferM ([Type], Type)
@@ -748,7 +751,7 @@ getStructFieldType t fieldName = case getRoot t of
     fieldSch <- case lookup fieldName fields of
       Nothing -> inferErr $ UndefinedField structName fieldName
       Just sc -> return sc
-    (fieldFn, ps) <- freshInst fieldSch
+    (fieldFn, ps) <- freshInst fieldSch -- TOOD: Use ps here?
 
     unify fieldFn (makeFuncType [t] resultT)
     sub <- getSub
@@ -1260,7 +1263,8 @@ requireEq a b = require $ a == b
 mustClass :: ClassEnv -> String -> Class
 mustClass ce cls =
   case Map.lookup cls (classes ce) of
-    Just c -> c
+    Just c  -> c
+    Nothing -> error $ "must have class " ++ cls
 
 super :: ClassEnv -> String -> [String]
 super ce cls = superclasses $ mustClass ce cls
@@ -1273,7 +1277,7 @@ bySuper ce p@(Pred i t)
   = p : concat [ bySuper ce (Pred i' t) | i' <- super ce i ]
 
 byInst :: ClassEnv -> Predicate -> Maybe [Predicate]
-byInst ce p@(Pred i t) = msum [ tryInst it | it <- insts ce i ]
+byInst ce p@(Pred i _) = msum [ tryInst it | it <- insts ce i ]
   where tryInst (Qual ps h) = do
           u <- predsMatch h p
           Just (map (apply u) ps)
@@ -1321,8 +1325,8 @@ reduce ce ps = do
 
 type Ambiguity = (TyVar, [Predicate])
 
-ambiguities :: ClassEnv -> Set TyVar -> [Predicate] -> [Ambiguity]
-ambiguities ce vs ps =
+ambiguities :: Set TyVar -> [Predicate] -> [Ambiguity]
+ambiguities vs ps =
   [ (v, filter (Set.member v . freeTypeVars) ps)
   | v <- Set.toList $ Set.difference (freeTypeVars ps) vs ]
 
@@ -1337,19 +1341,19 @@ stdClasses  = ["Eq", "Ord", "Show", "Read", "Bounded", "Enum", "Ix",
 candidates :: ClassEnv -> Ambiguity -> [Type]
 candidates ce (v, qs) =
   let pairs = [ (i, t) | Pred i t <- qs ]
-      classes = map fst pairs
+      classNames = map fst pairs
       types = map snd pairs
       allTypesMatch = all (TVar v ==) types
-      anyNumClass = any (`elem` numClasses) classes
-      allStdClass = all (`elem` stdClasses) classes
+      anyNumClass = any (`elem` numClasses) classNames
+      allStdClass = all (`elem` stdClasses) classNames
   in if allTypesMatch && anyNumClass && allStdClass
      then [ t' | t' <- defaults ce,
-            all (entail ce []) [Pred i t' | i <- classes] ]
+            all (entail ce []) [Pred i t' | i <- classNames] ]
      else []
 
 getDefaults :: ClassEnv -> Set TyVar -> [Predicate] -> InferM ([Ambiguity], [Type])
 getDefaults ce vs ps =
-  let vps = ambiguities ce vs ps
+  let vps = ambiguities vs ps
       tss = map (candidates ce) vps
   in if any null tss
      then inferErr $ Ambiguity ps
