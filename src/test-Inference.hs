@@ -117,6 +117,7 @@ tests =
   , ts "return a-b" returnAB
   , ts "return a-b end" returnABEnd
   , ts "missing return" missingReturn
+  , ts "missing return generic" missingReturnGeneric
   , ts "first class function" firstClassFunction
   , ts "no higher order polymorphism" noHigherOrderPolymorphism
   , ts "infinite type" infiniteType
@@ -396,9 +397,18 @@ returnABEnd = do
 
 missingReturn :: Assertion
 missingReturn = do
-  -- f(x, y) = if x > y { return x; }
+  -- f(x, y) = if x && y { return x; }
   let returnX = returnJust $ E.Var [] "x"
-  let test = E.Binary [] E.Greater (E.Var [] "x") (E.Var [] "y")
+  let test = E.Binary [] E.BoolAnd (E.Var [] "x") (E.Var [] "y")
+  let ifStmt = S.If [] test [returnX] Nothing
+  assertDeclFails $ func "f" ["x", "y"] [ifStmt]
+
+missingReturnGeneric :: Assertion
+missingReturnGeneric = do
+  -- f(x, y) = if x < y { return x; }
+  -- tUnit does not implement Ord
+  let returnX = returnJust $ E.Var [] "x"
+  let test = E.Binary [] E.BoolAnd (E.Var [] "x") (E.Var [] "y")
   let ifStmt = S.If [] test [returnX] Nothing
   assertDeclFails $ func "f" ["x", "y"] [ifStmt]
 

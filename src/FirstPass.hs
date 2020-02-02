@@ -114,7 +114,7 @@ makeClassEnv =
                    , instances=map (makeInst "Eq") [tUnit, tInt, tFloat, tChar, tString, tUnit] })
         , ("Ord",  Class
                    { superclasses=["Eq"]
-                   , instances=map (makeInst "Ord") [tUnit, tInt, tFloat, tChar, tString] })
+                   , instances=map (makeInst "Ord") [tInt, tFloat, tChar, tString] })
         , ("Show", Class
                    { superclasses=[]
                    , instances=map (makeInst "Show") [tUnit, tInt, tFloat, tChar, tString, tUnit] })
