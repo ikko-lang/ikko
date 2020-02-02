@@ -83,10 +83,15 @@ applyTypes :: Type -> [Type] -> Type
 applyTypes = foldl TAp
 
 unApplyTypes :: Type -> (Type, [Type])
-unApplyTypes (TAp a b) =
-  let (t, ts) = unApplyTypes a
+unApplyTypes t =
+  let (t', ts) = unApplyTypes' t
+  in (t', reverse ts)
+
+unApplyTypes' :: Type -> (Type, [Type])
+unApplyTypes' (TAp a b) =
+  let (t, ts) = unApplyTypes' a
   in (t, b : ts)
-unApplyTypes t         =
+unApplyTypes' t         =
   (t, [])
 
 getRoot :: Type -> Type
@@ -215,7 +220,7 @@ renderFn t =
       retT = render $ last ts
       argT = map render $ init ts
       args = intercalate ", " argT
-  in "fn(" ++ args ++ ") " ++ retT
+  in "fn(" ++ args ++ ") -> (" ++ retT ++ ")"
 
 renderAp :: Type -> String
 renderAp t =

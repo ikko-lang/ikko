@@ -133,6 +133,19 @@ Test-Suite test-parser
                   Util.PrettyPrint,
                   Util.Functions
 
+Test-Suite test-types
+    type:    exitcode-stdio-1.0
+    main-is: test-Types.hs
+    build-depends: base, containers, HUnit, mtl
+    hs-source-dirs:      src
+    default-language:    Haskell2010
+    ghc-options:         -j -O0
+    other-modules:
+                  Types,
+                  Util.PrettyPrint,
+                  Util.Functions
+
+
 Test-Suite test-graph
     type:    exitcode-stdio-1.0
     main-is: Util/test-Graph.hs

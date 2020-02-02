@@ -19,6 +19,9 @@ test-first-pass:
 test-graph:
 	stack test ikko:test-graph
 
+test-types:
+	stack test ikko:test-types
+
 run: ikko
 	stack exec ikko -- examples/fib.ik
 
