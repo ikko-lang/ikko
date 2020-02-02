@@ -217,10 +217,20 @@ instance Render Type where
 renderFn :: Type -> String
 renderFn t =
   let (_, ts) = unApplyTypes t
-      retT = render $ last ts
+      retT = last ts
       argT = map render $ init ts
       args = intercalate ", " argT
-  in "fn(" ++ args ++ ") -> (" ++ retT ++ ")"
+  in "fn(" ++ args ++ ") -> " ++ renderReturn retT
+
+-- adds parens if return type is complex
+renderReturn :: Type -> String
+renderReturn retT =
+  let rendered = render retT
+  in case retT of
+    TVar _   -> rendered
+    TGen _ _ -> rendered
+    TCon _ _ -> rendered
+    _      -> "(" ++ rendered ++ ")"
 
 renderAp :: Type -> String
 renderAp t =

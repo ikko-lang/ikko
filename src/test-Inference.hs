@@ -699,7 +699,7 @@ inferWithSub = runInferWithSub Map.empty makeClassEnv
 
 assertNoGenerics :: Type -> Assertion
 assertNoGenerics t =
-  let message = "expected the type (" ++ show t ++ ") to not contain generics"
+  let message = "expected the type `" ++ render t ++ "` to not contain generics"
   in assertEqual message True (not $ containsGenerics t)
 
 
