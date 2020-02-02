@@ -511,18 +511,18 @@ simpleModule =
          assertModuleTypes "f" fNType result
          assertModuleTypes "id" idType result
 
-     , labeled "id(x) { f(1); return x; }, f(x) { return id(x) > 2; }" $ do
+     , labeled "id(x) { f(1); return x; }, f(x) { return id(x) << 2; }" $ do
          -- Test the fact that mutually-recursive functions
          -- are sometimes less general than you'd expect
          -- id(x) { f(1); return x; }
-         -- f(x) { return id(x) > 2; }
+         -- f(x) { return id(x) << 2; }
          let callF = S.Expr [] $ E.Call [] varF [intVal 1]
          let identityCallingF = func "id" ["x"] [callF, returnJust varX]
          let idOfX = E.Call [] varID [varX]
-         let fCallsID = func "f" ["x"] [returnJust $ E.Binary [] E.Greater idOfX (intVal 2)]
+         let fCallsID = func "f" ["x"] [returnJust $ E.Binary [] E.LShift idOfX (intVal 2)]
          let result = inferModule $ makeModule [("f", fCallsID), ("id", identityCallingF)]
          let lessGeneralIDType = Scheme [] $ Qual [] $ makeFuncType [tInt] tInt
-         let fCallsIDType = Scheme [] $ Qual [] $ makeFuncType [tInt] tBool
+         let fCallsIDType = Scheme [] $ Qual [] $ makeFuncType [tInt] tInt
          assertModuleTypes "f" fCallsIDType result
          assertModuleTypes "id" lessGeneralIDType result
      ]
