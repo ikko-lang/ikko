@@ -51,6 +51,7 @@ import Inference
   , inferGroup
   , unifies
   , alphaSubstitues
+  , genSubstitutes
   , makeBindGroup
   , implicitBindings
   , explicitBindings
@@ -101,12 +102,12 @@ main = runTestTT tests
 tests :: Test
 tests =
   TestList
-  [ ts "comparing types" comparingTypes
+  [ TestLabel "comparing types" comparingTypes
   , ts "composing substitutions" composingSubs
   , ts "basic unification" basicUnification
   , ts "recursive unification" recursiveUnification
   , ts "getting explicit type" gettingExplicitType
-  , ts "instantiation" instantiation
+  , TestLabel "instantiation" instantiation
   , ts "expression inference" simpleInference
   , TestLabel "simple functions" functionInference
   , ts "while loop" whileLoop
@@ -130,32 +131,50 @@ tests =
 ts name assertion = TestLabel name $ TestCase assertion
 labeled = ts
 
--- Make should ghat the isAlphaSub function works properly,
+-- Make sure that the isAlphaSub function works properly,
 -- which the other tests rely on to tell if the thing they test is working.
-comparingTypes :: Assertion
-comparingTypes = do
+comparingTypes :: Test
+comparingTypes =
   let varA = tvar "a"
-  let varB = tvar "b"
-  let varX = tvar "x"
-  let varY = tvar "y"
-  assertTrue $ alphaSubstitues varX varX
-  assertTrue $ alphaSubstitues varX varY
-  assertTrue $ alphaSubstitues tInt tInt
-  -- allows repeated vars
-  assertTrue $ alphaSubstitues (makeFuncType [varX, varX] varY) (makeFuncType [varA, varA] varY)
-  assertTrue $ alphaSubstitues (makeFuncType [varX, varX] varY) (makeFuncType [varA, varA] varB)
-  assertTrue $ alphaSubstitues (tcon "L" [varX]) (tcon "L" [varB])
+      varB = tvar "b"
+      varX = tvar "x"
+      varY = tvar "y"
+  in TestList
+     [ labeled "x, x" $ assertTrue $ alphaSubstitues varX varX
+     , labeled "x, y" $ assertTrue $ alphaSubstitues varX varY
+     , labeled "Int, Int" $ assertTrue $ alphaSubstitues tInt tInt
+     , labeled "t0, t0" $ assertTrue $ alphaSubstitues (tgenN 0) (tgenN 0)
 
-  -- doesn't allow making types more or less general
-  assertFalse $ alphaSubstitues (makeFuncType [varX, varY] varY) (makeFuncType [varA, varA] varA)
-  assertFalse $ alphaSubstitues (makeFuncType [varX, varX] varX) (makeFuncType [varA, varB] varB)
+     -- allows repeated vars:
 
-  assertFalse $ alphaSubstitues (makeFuncType [varX] varY) (makeFuncType [varA, varA] varY)
-  assertFalse $ alphaSubstitues (tcon "L" [varX]) (tcon "L" [varB, varB])
-  assertFalse $ alphaSubstitues (tgenN 0) (tgenN 0)
-  assertFalse $ alphaSubstitues tInt tBool
-  assertFalse $ alphaSubstitues (tvar "x") tInt
-  assertFalse $ alphaSubstitues tInt (tvar "x")
+     , labeled "fn(x, x) y, fn(a, a) y" $
+       assertTrue $ alphaSubstitues (makeFuncType [varX, varX] varY) (makeFuncType [varA, varA] varY)
+
+     , labeled "fn(x, x) y, fn(a, a) b" $
+       assertTrue $ alphaSubstitues (makeFuncType [varX, varX] varY) (makeFuncType [varA, varA] varB)
+
+     , labeled "L x, L b" $
+       assertTrue $ alphaSubstitues (tcon "L" [varX]) (tcon "L" [varB])
+
+     -- doesn't allow making types more or less general:
+
+     , labeled "f(x, y) y, f(a, a) a" $
+       assertFalse $ alphaSubstitues (makeFuncType [varX, varY] varY) (makeFuncType [varA, varA] varA)
+
+     , labeled "f(x, x) x, f(a, b) b" $
+       assertFalse $ alphaSubstitues (makeFuncType [varX, varX] varX) (makeFuncType [varA, varB] varB)
+
+     , labeled "t0, t1" $ assertFalse $ alphaSubstitues (tgenN 0) (tgenN 1)
+     , labeled "f(x) y, f(a, a) y" $
+       assertFalse $ alphaSubstitues (makeFuncType [varX] varY) (makeFuncType [varA, varA] varY)
+
+     , labeled "L x, L b b" $
+       assertFalse $ alphaSubstitues (tcon "L" [varX]) (tcon "L" [varB, varB])
+
+     , labeled "Int, Bool" $ assertFalse $ alphaSubstitues tInt tBool
+     , labeled "x, Int" $ assertFalse $ alphaSubstitues (tvar "x") tInt
+     , labeled "Int, x" $ assertFalse $ alphaSubstitues tInt (tvar "x")
+     ]
 
 composingSubs :: Assertion
 composingSubs = do
@@ -221,14 +240,23 @@ gettingExplicitType = do
   assertEqual "" (Right expected) result
 
 
-instantiation :: Assertion
-instantiation = do
-  assertInstantiates (Scheme [] $ Qual [] tInt) tInt
-  assertInstantiates (Scheme [Star] $ Qual [] tInt) tInt
-  assertInstantiates (Scheme [Star] $ Qual [] $ tgenN 0) (tvar "a")
-  let sch2 = Scheme [Star, Star] (Qual [] $ makeFuncType [tgenN 0, tgenN 1] (tgenN 1))
-  let t2 = makeFuncType [tvar "a", tvar "b"] (tvar "b")
-  assertInstantiates sch2 t2
+instantiation :: Test
+instantiation =
+  TestList
+  [ labeled "Int" $
+    assertInstantiates (Scheme [] $ Qual [] tInt) tInt
+
+  , labeled "Int with a * kind(?)" $
+    assertInstantiates (Scheme [Star] $ Qual [] tInt) tInt
+
+  , labeled "generic -> a" $
+    assertInstantiates (Scheme [Star] $ Qual [] $ tgenN 0) (tvar "a")
+
+  , labeled "function with generics" $ do
+      let sch2 = Scheme [Star, Star] (Qual [] $ makeFuncType [tgenN 0, tgenN 1] (tgenN 1))
+      let t2 = makeFuncType [tvar "a", tvar "b"] (tvar "b")
+      assertInstantiates sch2 t2
+  ]
 
 
 simpleInference :: Assertion
@@ -280,12 +308,12 @@ functionInference =
 
      , labeled "f(x) { return 1.0; }" $ do
          let func2 = func "f" ["x"] [returnJust $ floatVal 1]
-         let type2 = Qual [] $ makeFuncType [tvar "a"] tFloat
+         let type2 = Qual [] $ makeFuncType [tgenN 0] tFloat
          assertDeclTypes type2 func2
 
      , labeled "f(x) { return x; }" $ do
          let func3 = func "f" ["x"] [returnJust varX]
-         let type3 = Qual [] $ makeFuncType [tvar "a"] (tvar "a")
+         let type3 = Qual [] $ makeFuncType [tgenN 0] (tgenN 0)
          assertDeclTypes type3 func3
 
      , labeled "f(x) { return x + 1.0; }" $ do
@@ -307,7 +335,7 @@ functionInference =
          let letStmt = S.Let [] "y" Nothing (E.Var [] "x")
          let returnStmt = returnJust (E.Var [] "y")
          let funcLet = func "f" ["x"] [letStmt, returnStmt]
-         let idType = Qual [] $ makeFuncType [tvar "a"] (tvar "a")
+         let idType = Qual [] $ makeFuncType [tgenN 0] (tgenN 0)
          assertDeclTypes idType funcLet
 
          -- TODO: Test assignment
@@ -336,7 +364,7 @@ ifElseReturn = do
   let returnY = returnJust $ E.Var [] "y"
   let ifStmt = S.If [] test [returnX] (Just returnY)
   let func7 = func "f" ["x", "y"] [ifStmt]
-  let tvar = TVar (TyVar "_v2" Star)
+  let tvar = tgenN 0
   let type7 = Qual [Pred "Ord" tvar] $ makeFuncType [tvar, tvar] tvar
   assertDeclTypes type7 func7
 
@@ -349,7 +377,7 @@ ifThenReturn = do
   let ifStmt = S.If [] test [returnX] Nothing
   let returnY = returnJust $ E.Var [] "y"
   let func8 = func "f" ["x", "y"] [ifStmt, returnY]
-  let tvar = TVar (TyVar "_v2" Star)
+  let tvar = tgenN 0
   let type8 = Qual [Pred "Ord" tvar] $ makeFuncType [tvar, tvar] tvar
   assertDeclTypes type8 func8
 
@@ -361,7 +389,7 @@ returnABC = do
   let returnC = returnJust $ E.Var [] "c"
   let ifStmt = S.If [] (E.Var [] "a") [returnB] (Just returnC)
   let func9 = func "f" ["a", "b", "c"] [ifStmt]
-  let type9 = Qual [] $ makeFuncType [tBool, tvar "a", tvar "a"] (tvar "a")
+  let type9 = Qual [] $ makeFuncType [tBool, tgenN 0, tgenN 0] (tgenN 0)
   assertDeclTypes type9 func9
 
 
@@ -372,7 +400,7 @@ returnABC2 = do
   let returnC = returnJust $ E.Var [] "c"
   let ifStmt = S.If [] (E.Var [] "a") [returnB] Nothing
   let func9 = func "f" ["a", "b", "c"] [ifStmt, returnC]
-  let type9 = Qual [] $ makeFuncType [tBool, tvar "a", tvar "a"] (tvar "a")
+  let type9 = Qual [] $ makeFuncType [tBool, tgenN 0, tgenN 0] (tgenN 0)
   assertDeclTypes type9 func9
 
 
@@ -382,7 +410,7 @@ returnAB = do
   let returnB = returnJust $ E.Var [] "b"
   let ifStmt = S.If [] (E.Var [] "a") [returnB] (Just returnB)
   let funcAB = func "f" ["a", "b"] [ifStmt]
-  let typeAB = Qual [] $ makeFuncType [tBool, tvar "a"] (tvar "a")
+  let typeAB = Qual [] $ makeFuncType [tBool, tgenN 0] (tgenN 0)
   assertDeclTypes typeAB funcAB
 
 returnABEnd :: Assertion
@@ -391,7 +419,7 @@ returnABEnd = do
   let returnB = returnJust $ E.Var [] "b"
   let ifStmt = S.If [] (E.Var [] "a") [returnB] Nothing
   let funcAB = func "f" ["a", "b"] [ifStmt, returnB]
-  let typeAB = Qual [] $ makeFuncType [tBool, tvar "a"] (tvar "a")
+  let typeAB = Qual [] $ makeFuncType [tBool, tgenN 0] (tgenN 0)
   assertDeclTypes typeAB funcAB
 
 
@@ -421,9 +449,9 @@ firstClassFunction = do
   let call = E.Call [] varX [varY, varY]
   let f = func "f" ["x", "y"] [returnJust call]
   -- (a -> a -> b)
-  let xType = makeFuncType [tvar "a", tvar "a"] (tvar "b")
+  let xType = makeFuncType [tgenN 0, tgenN 0] (tgenN 1)
   -- (a -> a -> b) -> a -> b
-  let t = Qual [] $ makeFuncType [xType, tvar "a"] (tvar "b")
+  let t = Qual [] $ makeFuncType [xType, tgenN 0] (tgenN 1)
   assertDeclTypes t f
 
 
@@ -686,10 +714,8 @@ inferResultPrinter3 (printable, t, preds) =
 -- so that it doesn't allow narrower types than it should.
 assertMatches :: Type -> Type -> Assertion
 assertMatches expected result = do
-  assertNoGenerics expected
-  assertNoGenerics result
-  let message = "expected\n  " ++ show result ++
-                "\nto be equivalent to\n  " ++ show expected ++ "\n"
+  let message = "expected\n  " ++ render result ++
+                "\nto be equivalent to\n  " ++ render expected ++ "\n"
   assertEqual message True (alphaSubstitues expected result)
 
 
