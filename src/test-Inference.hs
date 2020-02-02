@@ -499,16 +499,16 @@ simpleModule =
          let result = inferModule $ makeModule [("id", identity)]
          assertModuleTypes "id" idType result
 
-     , labeled "id(x) { return x; }, f(n) { return id(n > id(3)); }" $ do
+     , labeled "id(x) { return x; }, f(b) { return id(id)(b || False); }" $ do
          -- Test usage of let-polymorphism
-         -- id(x) { return x; }
-         -- f(n) { return id(n > id(3)); }
-         let id3 = E.Call [] varID [intVal 3]
-         let idExpr = E.Call [] varID [E.Binary [] E.Greater varN id3]
-         let fN = func "f" ["n"] [returnJust idExpr]
-         let result = inferModule $ makeModule [("f", fN), ("id", identity)]
-         let fNType = Scheme [] $ Qual []  $ makeFuncType [tInt] tBool
-         assertModuleTypes "f" fNType result
+         let varB = E.Var [] "b"
+         let bOrFalse = E.Binary [] E.BoolOr varB (boolVal False)
+         let idid = E.Call [] varID [varID]
+         let idExpr = E.Call [] idid [bOrFalse]
+         let fB = func "f" ["b"] [returnJust idExpr]
+         let result = inferModule $ makeModule [("f", fB), ("id", identity)]
+         let fBType = Scheme [] $ Qual []  $ makeFuncType [tBool] tBool
+         assertModuleTypes "f" fBType result
          assertModuleTypes "id" idType result
 
      , labeled "id(x) { f(1); return x; }, f(x) { return id(x) << 2; }" $ do
