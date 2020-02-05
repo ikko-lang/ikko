@@ -81,7 +81,7 @@ executable ikko
                  mtl >=2.2,
                  process >=1.2,
                  filepath >=1.4,
-                 QuickCheck >=2.8,
+                 QuickCheck >=2.13.1,
                  free >= 4,
                  indents >= 0.5
 
@@ -149,7 +149,7 @@ Test-Suite test-types
 Test-Suite test-graph
     type:    exitcode-stdio-1.0
     main-is: Util/test-Graph.hs
-    build-depends: base, containers, mtl, QuickCheck, HUnit >= 1.6
+    build-depends: base, containers, mtl, QuickCheck >= 2.13.1, HUnit >= 1.6
     hs-source-dirs:      src
     default-language:    Haskell2010
     ghc-options:         -j

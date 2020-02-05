@@ -10,6 +10,7 @@ import Test.QuickCheck
   ( quickCheck
   , quickCheckWithResult
   , stdArgs
+  , isSuccess
   , Args(..)
   , Testable
   , Result(..) )
@@ -32,13 +33,9 @@ tests =
 
 checkProperty :: (Testable prop) => String -> prop -> Test
 checkProperty name property = TestLabel name $ TestCase $ do
-  let args = stdArgs { maxSuccess = 100 }
+  let args = stdArgs { maxSuccess = 100, chatty = False }
   result <- quickCheckWithResult args property
   assertBool "" (isSuccess result)
-
-isSuccess :: Result -> Bool
-isSuccess Success{} = True
-isSuccess _         = False
 
 propNoEmptyGroups :: Graph Char -> Bool
 propNoEmptyGroups graph =

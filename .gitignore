@@ -13,3 +13,4 @@ dist
 a.out
 .idea
 *.prof
+stack.yaml.lock
