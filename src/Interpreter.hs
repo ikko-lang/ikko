@@ -42,11 +42,11 @@ startingState :: InferResult -> IO Scope
 startingState body = do
   rootScope <- newIORef builtIns
   let scope = [rootScope]
-  let decls = topLevelBindings body
+  let binds = topLevelBindings body
   -- TODO: Also evaluate constant expression
   let functions =
         [ (name, toClosure scope args stmt)
-        | (name, D.Function _ _ _ args stmt, _) <- decls ]
+        | (name, D.Function _ _ _ args stmt) <- binds ]
   insertAll functions scope
 
 builtIns :: Map String Value

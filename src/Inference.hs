@@ -45,7 +45,7 @@ import Control.Monad.State (StateT, modify, get, gets, put, lift, evalStateT, ma
 
 import Util.Functions
 import qualified AST.Annotation as Anno
-import AST.Annotation (Annotation, Annotated, getLocation, addType)
+import AST.Annotation (Annotation, Annotated, getLocation, addType, mapType)
 import AST.Expression (UnaryOp(..), BinOp(..))
 import qualified AST.Expression as E
 import qualified AST.Statement as S
@@ -111,34 +111,44 @@ data BindGroup
     -- all bindings with an explicit type go in one group
     , explicitBindings :: [(String, DeclarationT)] }
 
+-- TODO: Remove TypedDecls after changing the type annotation to be a Scheme
 type TypedDecls = [(String, DeclarationT, Preds)]
+
+newtype Bindings = Bindings [(String, DeclarationT)]
+  deriving (Show)
 
 data InferResult
   = InferResult
-    { topLevelBindings :: TypedDecls
+    { topLevelBindings :: [(String, DeclarationT)]
     , topLevelEnv      :: Environment }
   deriving (Show)
 
 inferModule :: Module -> Result InferResult
-inferModule m = do
-  let bindGroup = makeBindGroup m
+inferModule m =
   let ctors = constructors m
-  let ce = classEnv m
-  -- Here, I want to also get back the predicates that have not yet been resolved
-  (binds, env) <- runInfer ctors ce $ inferBindGroup bindGroup startingEnv
+      ce = classEnv m
+  in runInfer ctors ce $ inferProgram m
+
+inferProgram :: Module -> InferM InferResult
+inferProgram m = do
+  let bindGroup = makeBindGroup m
+  (binds, env, ps) <- inferBindGroup bindGroup startingEnv
+
   -- Reduce the predicates
-  -- reduced <- reduce ce (applyCurrentSub ps)
+  ps' <- applyCurrentSub ps
+  ce <- getClassEnv
+  reduced <- reduce ce ps'
 
   -- Then apply create a default substitution
-  -- defaultingSub <- defaultSubst ce [] reduced
+  defaultingSub <- defaultSubst ce reduced
 
   -- Combine that with the current substitution
-  -- extendSub defaultingSub
+  extendSub defaultingSub
 
   -- And finally apply that to the result
-  -- binds' <- applyCurrentSub binds
-  -- env' <- applyCurrentSub env
-  return InferResult { topLevelBindings=binds, topLevelEnv=env }
+  Bindings binds' <- applyCurrentSub binds
+  env' <- applyCurrentSub env
+  return InferResult { topLevelBindings=binds', topLevelEnv=env' }
 
 makeBindGroup :: Module -> BindGroup
 makeBindGroup m =
@@ -362,7 +372,7 @@ getSub = gets currentSub
 getClassEnv :: InferM ClassEnv
 getClassEnv = gets cenv
 
-applyCurrentSub :: Type -> InferM Type
+applyCurrentSub :: (Types t) => t -> InferM t
 applyCurrentSub t = do
   sub <- getSub
   return $ apply sub t
@@ -373,10 +383,7 @@ extendSub sub = do
   let s = composeSubs s1 sub
   modify (\st -> st { currentSub=s })
 
--- TODO: Make the return type be
--- InferM (Bindings, Environment, Preds)
--- where Bindings = [(String, DeclarationT)]
-inferBindGroup :: BindGroup -> Environment -> InferM (TypedDecls, Environment)
+inferBindGroup :: BindGroup -> Environment -> InferM (Bindings, Environment, Preds)
 inferBindGroup bg env = do
   let expls = explicitBindings bg
   explicitBindingTypes <- getExplicitTypes expls
@@ -387,9 +394,14 @@ inferBindGroup bg env = do
   (decls1, env2, ps) <- inferGroups env1 impls
   let env' = addToEnv env2 env1
   decls2 <- tiExpls expls env'
-  return (decls1 ++ decls2, env')
-  -- TODO: Return predicates, then apply defaulting at the top level
-  -- (the `ps` variable should be used)b
+  let (bindings, preds) = extractPreds (decls1 ++ decls2)
+  return (bindings, env', preds)
+
+extractPreds :: TypedDecls -> (Bindings, Preds)
+extractPreds = foldl extractPreds1 (Bindings [], [])
+  where extractPreds1 (Bindings binds, preds) (name, decl, ps) =
+          (Bindings $ (name, decl) : binds, ps ++ preds)
+
 
 tiExpls :: [(String, DeclarationT)] -> Environment -> InferM TypedDecls
 tiExpls expls env = case expls of
@@ -1399,3 +1411,13 @@ snd3 (_, x, _) = x
 
 trd3 :: (a, b, c) -> c
 trd3 (_, _, x) = x
+
+instance Types Bindings where
+  apply sub (Bindings bs) =
+    Bindings $ map (applySnd (subDeclaration sub)) bs
+
+  freeTypeVars (Bindings bs) =
+    freeTypeVars $ map (getType . snd) bs
+
+subDeclaration :: Substitution -> DeclarationT -> DeclarationT
+subDeclaration sub = mapType (apply sub)
