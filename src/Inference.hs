@@ -124,7 +124,20 @@ inferModule m = do
   let bindGroup = makeBindGroup m
   let ctors = constructors m
   let ce = classEnv m
+  -- Here, I want to also get back the predicates that have not yet been resolved
   (binds, env) <- runInfer ctors ce $ inferBindGroup bindGroup startingEnv
+  -- Reduce the predicates
+  -- reduced <- reduce ce (applyCurrentSub ps)
+
+  -- Then apply create a default substitution
+  -- defaultingSub <- defaultSubst ce [] reduced
+
+  -- Combine that with the current substitution
+  -- extendSub defaultingSub
+
+  -- And finally apply that to the result
+  -- binds' <- applyCurrentSub binds
+  -- env' <- applyCurrentSub env
   return InferResult { topLevelBindings=binds, topLevelEnv=env }
 
 makeBindGroup :: Module -> BindGroup
@@ -360,7 +373,9 @@ extendSub sub = do
   let s = composeSubs s1 sub
   modify (\st -> st { currentSub=s })
 
-
+-- TODO: Make the return type be
+-- InferM (Bindings, Environment, Preds)
+-- where Bindings = [(String, DeclarationT)]
 inferBindGroup :: BindGroup -> Environment -> InferM (TypedDecls, Environment)
 inferBindGroup bg env = do
   let expls = explicitBindings bg
@@ -1362,6 +1377,11 @@ defaultedPreds :: ClassEnv -> Set TyVar -> [Predicate] -> InferM [Predicate]
 defaultedPreds ce vs ps = do
   (vps, _) <- getDefaults ce vs ps
   return $ concatMap snd vps
+
+defaultSubst :: ClassEnv -> [Predicate] -> InferM Substitution
+defaultSubst ce ps = do
+  (vps, ts) <- getDefaults ce Set.empty ps
+  return $ Map.fromList $ zip (map (TVar . fst) vps) ts
 
 -- returns (deferred, retained) predicates
 split :: ClassEnv -> Set TyVar -> Set TyVar -> [Predicate] -> InferM ([Predicate], [Predicate])
