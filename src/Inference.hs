@@ -114,7 +114,8 @@ data BindGroup
 -- TODO: Remove TypedDecls after changing the type annotation to be a Scheme
 type TypedDecls = [(String, DeclarationT, Preds)]
 
-newtype Bindings = Bindings [(String, DeclarationT)]
+type Binding = (String, DeclarationT)
+newtype Bindings = Bindings [Binding]
   deriving (Show)
 
 data InferResult
@@ -391,18 +392,22 @@ inferBindGroup bg env = do
   let env1 = addToEnv explicitBindingTypes env
   let impls = implicitBindings bg
 
-  (decls1, env2, ps) <- inferGroups env1 impls
+  (decls1, env2, ps1) <- inferGroups env1 impls
+  let (bindings1, _) = toBindings decls1
   let env' = addToEnv env2 env1
   decls2 <- tiExpls expls env'
-  let (bindings, preds) = extractPreds (decls1 ++ decls2)
-  return (bindings, env', preds)
+  let (bindings2, ps2) = toBindings decls2
+  -- ps1 and ps2 are _deferred_ predicates
+  return (Bindings $ bindings1 ++ bindings2, env', ps1 ++ ps2)
 
-extractPreds :: TypedDecls -> (Bindings, Preds)
-extractPreds = foldl extractPreds1 (Bindings [], [])
-  where extractPreds1 (Bindings binds, preds) (name, decl, ps) =
-          (Bindings $ (name, decl) : binds, ps ++ preds)
+toBindings :: TypedDecls -> ([Binding], Preds)
+toBindings = foldl extractPreds ([], [])
+  where extractPreds (binds, preds) (name, decl, ps) =
+          ((name, decl) : binds, ps ++ preds)
 
 
+-- TODO: The predicates in TypedDecls are actually the deferred predicates, so
+-- the structure doesn't really make sense, but it works for now
 tiExpls :: [(String, DeclarationT)] -> Environment -> InferM TypedDecls
 tiExpls expls env = case expls of
   [] ->
