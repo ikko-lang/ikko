@@ -662,9 +662,18 @@ funcTypeParser = do
 
 classDefParser :: Parser TypeDecl
 classDefParser = do
-  string_ "class:"
+  string_ "class"
+  
+  msupers <- optionMaybe $ try $ do
+    any1LinearWhitespace
+    string_ "extends"
+    any1Whitespace
+    sepBy typeName commaSep
+  let superclasses = fromMaybe [] msupers
+
+  char_ ':'
   statementSep
-  T.ClassDecl [] <$> block (addLocation classMethod)
+  T.ClassDecl [] superclasses <$> block (addLocation classMethod)
 
 classMethod :: Parser ClassMethod
 classMethod = do

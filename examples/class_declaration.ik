@@ -7,9 +7,8 @@ type Use class:
 type Storage class:
     fn store<T>(Self, T) () where T: Sized
 
-// TODO: Superclasses
-// type Ord class extends Eq:
-//     fn cmp(Self, Self) Bool
+type MyOrd class extends MyEq, MyOtherClass:
+    fn cmp(Self, Self) Bool
 
 
 fn main():

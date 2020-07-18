@@ -13,8 +13,7 @@ data TypeDecl a
   | Function a [Predicate a] [TypeDecl a] (TypeDecl a)
   | Struct a [(String, TypeDecl a)]
   | Enum a [(String, EnumOption a)]
-  -- TODO: Superclasses
-  | ClassDecl a [ClassMethod a]
+  | ClassDecl a [Type] [ClassMethod a] -- superclasses, methods
   deriving (Eq, Show, Functor, Foldable, Traversable)
 
 instance Annotated TypeDecl where
