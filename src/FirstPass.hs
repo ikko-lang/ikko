@@ -108,7 +108,7 @@ makeInst c t = Qual [] (Pred c t)
 
 makeClassEnv :: ClassEnv
 makeClassEnv =
-  let classes = Map.fromList
+  let builtinClasses = Map.fromList
         [ ("Eq",   Class
                    { superclasses=[]
                    , instances=map (makeInst "Eq") [tUnit, tBool, tInt, tFloat, tChar, tString, tUnit] })
@@ -123,7 +123,7 @@ makeClassEnv =
                    , instances=map (makeInst "Num") [tInt, tFloat] })
         ]
   in ClassEnv
-     { classes=classes,
+     { classes=builtinClasses,
        defaults=[tInt, tFloat] }
 
 type DeclMap = Map String DeclarationT
@@ -214,6 +214,10 @@ makeConstructors ((t,d):ts) constrs = do
           sch = Scheme kinds (Qual [] $ makeFuncType [] typ)
           ctor = Constructor { ctorFields=[], ctorType=sch }
       in addEnumOptions kinds generalized sub typ options (Map.insert name ctor constrs)
+
+    T.ClassDecl{}        ->
+      -- Classes don't contribute constructors
+      return Map.empty
   makeConstructors ts constrs'
 
 mustBeUnique :: String -> Map String b -> Result ()
@@ -253,6 +257,8 @@ convertDecl sub decl = case decl of
   T.Struct{}              ->
     withLocations [decl] $ Left InvalidAnonStructure
   T.Enum{}                ->
+    withLocations [decl] $ Left InvalidAnonStructure
+  T.ClassDecl{}           ->
     withLocations [decl] $ Left InvalidAnonStructure
 
 -- select and deduplicate function and let bindings

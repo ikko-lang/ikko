@@ -51,9 +51,9 @@ parseFile fileName content =
 
 fileParser :: Parser File
 fileParser = do
-  _ <- anyWhitespace
+  anyWhitespace
   decls <- many (topLevel *> declarationParser)
-  _ <- anyWhitespace
+  anyWhitespace
   _ <- eof
   return decls
 
@@ -65,63 +65,63 @@ letDeclaration :: Parser Declaration
 letDeclaration = do
   (name, mtype) <- letName
   result <- D.Let [] name mtype <$> expressionParser
-  _ <- statementSep
+  statementSep
   return result
 
 letName :: Parser (String, Maybe TypeDecl)
 letName = do
-  _ <- string "let"
-  _ <- any1Whitespace
+  string_ "let"
+  any1Whitespace
   name <- valueName
-  _ <- any1Whitespace
+  any1Whitespace
   mtype <- optionMaybe $ try $ do
     typ <- simpleTypeDefParser
-    _ <- any1Whitespace
+    any1Whitespace
     return typ
-  _ <- char '='
-  _ <- any1Whitespace
+  char_ '='
+  any1Whitespace
   return (name, mtype)
 
 equalsWhitespace :: Parser ()
 equalsWhitespace = do
-  _ <- any1Whitespace
-  _ <- char '='
-  _ <- any1Whitespace
+  any1Whitespace
+  char_ '='
+  any1Whitespace
   return ()
 
 funcDeclaration :: Parser Declaration
 funcDeclaration = do
-  _ <- string "fn"
-  _ <- any1LinearWhitespace
+  string_ "fn"
+  any1LinearWhitespace
   name <- valueName
   gens <- optionMaybe $ try genericList
-  _ <- char '('
-  _ <- anyLinearWhitespace
+  char_ '('
+  anyLinearWhitespace
   argsAndTypes <- funcArgDecl
   let (args, argTypes) = unzip argsAndTypes
   retType <- optionMaybe $ try $ do
-    _ <- any1LinearWhitespace
+    any1LinearWhitespace
     simpleTypeDefParser
   mpredicates <- optionMaybe $ try $ do
-    _ <- any1Whitespace
+    any1Whitespace
     whereClauseParser
   mtype <- assembleFunctionType (fromMaybe [] gens) argTypes retType mpredicates
-  _ <- char ':'
-  _ <- statementSep
+  char_ ':'
+  statementSep
   D.Function [] name mtype args <$> blockStatement
 
 
 whereClauseParser :: Parser [Predicate]
 whereClauseParser = do
-  _ <- string "where"
-  _ <- any1Whitespace
+  string_ "where"
+  any1Whitespace
   sepBy (addLocation predParser) commaSep
 
 predParser :: Parser Predicate
 predParser = do
   tv <- typeParser
-  _ <- char ':'
-  _ <- any1LinearWhitespace
+  char_ ':'
+  any1LinearWhitespace
   cls <- typeParser
   return $ T.Predicate { T.predAnn=[], T.predClass=cls, T.predType=tv }
 
@@ -144,9 +144,9 @@ assembleFunctionType gens argTypes retType predicates =
 
 genericList :: Parser [Type]
 genericList = do
-  _ <- string "<"
+  string_ "<"
   gens <- sepBy typeParser commaSep
-  _ <- string ">"
+  string_ ">"
   return gens
 
 
@@ -164,11 +164,11 @@ requireJusts (Just t:ts) = do
 -- Type declarations cover structs, enums, and class definitions
 typeDeclaration :: Parser Declaration
 typeDeclaration = do
-  _ <- string "type"
-  _ <- any1LinearWhitespace
+  string_ "type"
+  any1LinearWhitespace
   declared <- simpleTypeDefParser
   tdef <- mustBeTDef declared
-  _ <- any1LinearWhitespace
+  any1LinearWhitespace
   D.TypeDef [] tdef <$> typeDefParser
 
 
@@ -195,23 +195,23 @@ funcArgDecl = argDeclEnd <|> argDecl
 
 argDeclEnd :: Parser ArgDecls
 argDeclEnd = do
-  _ <- char ')'
+  char_ ')'
   return []
 
 argDecl :: Parser ArgDecls
 argDecl = do
   name <- valueName
   mtype <- optionMaybe $ try $ do
-   _ <- any1LinearWhitespace
+   any1LinearWhitespace
    simpleTypeDefParser
-  _ <- anyLinearWhitespace
+  anyLinearWhitespace
   rest <- argDeclEnd <|> nextArgDecl
   return ((name, mtype) : rest)
 
 nextArgDecl :: Parser ArgDecls
 nextArgDecl = do
-  _ <- char ','
-  _ <- anyLinearWhitespace
+  char_ ','
+  anyLinearWhitespace
   argDecl
 
 ---- AST.Statement parsers ----
@@ -226,24 +226,24 @@ statementParser = do
 
 passStatement :: Parser Statement
 passStatement = do
-  _ <- string "pass"
-  _ <- statementSep
+  string_ "pass"
+  statementSep
   return $ S.Pass []
 
 returnStatement :: Parser Statement
 returnStatement = do
-  _ <- string "return"
+  string_ "return"
   e <- optionMaybe $ do
-    _ <- any1LinearWhitespace
+    any1LinearWhitespace
     expressionParser
-  _ <- statementSep
+  statementSep
   return $ S.Return [] e
 
 letStatement :: Parser Statement
 letStatement = do
   (name, mtype) <- letName
   l <- S.Let [] name mtype <$> expressionParser
-  _ <- statementSep
+  statementSep
   return l
 
 assignStatement :: Parser Statement
@@ -252,12 +252,12 @@ assignStatement = do
   names <- try (assignFields [name]) <|> return [name]
   equalsWhitespace
   a <- S.Assign [] names <$> expressionParser
-  _ <- statementSep
+  statementSep
   return a
 
 assignFields :: [String] -> Parser [String]
 assignFields lefts = do
-  _ <- char '.'
+  char_ '.'
   right <- valueName
   let names = right : lefts
   try (assignFields names) <|> return (reverse names)
@@ -272,20 +272,20 @@ blockStatement' =
 
 statementSep :: Parser ()
 statementSep = eof <|> do
-  _ <- anyLinearWhitespace
-  _ <- char '\n'
-  _ <- anyWhitespace
+  anyLinearWhitespace
+  char_ '\n'
+  anyWhitespace
   return ()
 
 exprStatement :: Parser Statement
 exprStatement = do
   e <- S.Expr [] <$> expressionParser
-  _ <- statementSep
+  statementSep
   return e
 
 ifStatement :: Parser Statement
 ifStatement = do
-  _ <- string "if"
+  string_ "if"
   (test, body) <- testedBlock
   elsePart <- optionMaybe $ try elseBlock
   return $ let (S.Block [] stmts) = body
@@ -298,34 +298,34 @@ elseBlock = do
 
 whileStatement :: Parser Statement
 whileStatement = do
-  _ <- string "while"
+  string_ "while"
   (test, body) <- testedBlock
   return $ let (S.Block [] stmts) = body
            in S.While [] test stmts
 
 testedBlock :: Parser (Expression, Statement)
 testedBlock = do
-  _ <- any1Whitespace
+  any1Whitespace
   test <- expressionParser
-  _ <- char ':'
-  _ <- statementSep
+  char_ ':'
+  statementSep
   body <- blockStatement
   return (test, body)
 
 matchStatement :: Parser Statement
 matchStatement = do
-  _ <- string "match"
-  _ <- any1Whitespace
+  string_ "match"
+  any1Whitespace
   value <- expressionParser
-  _ <- char ':'
-  _ <- statementSep
+  char_ ':'
+  statementSep
   S.Match [] value <$> block matchCaseParser
 
 matchCaseParser :: Parser MatchCase
 matchCaseParser = do
   e <- matchExpression
-  _ <- char ':'
-  _ <- statementSep
+  char_ ':'
+  statementSep
   S.MatchCase e <$> blockStatement
 
 matchExpression :: Parser MatchExpression
@@ -333,7 +333,7 @@ matchExpression = addLocation (matchAnything <|> matchVariable <|> matchStructur
 
 matchAnything :: Parser MatchExpression
 matchAnything = do
-  _ <- string "_"
+  string_ "_"
   return $ S.MatchAnything []
 
 matchVariable :: Parser MatchExpression
@@ -343,22 +343,22 @@ matchStructure :: Parser MatchExpression
 matchStructure = do
   structType <- typeParser
   minner <- optionMaybe $ try $ do
-    _ <- char '('
-    _ <- anyWhitespace
+    char_ '('
+    anyWhitespace
     choice [matchExpressions, argsEnd]
   return $ S.MatchStructure [] structType (fromMaybe [] minner)
 
 matchExpressions :: Parser [MatchExpression]
 matchExpressions = do
   e <- matchExpression
-  _ <- anyWhitespace
+  anyWhitespace
   rest <- choice [matchExpressionsNext, argsEnd]
   return $ e : rest
 
 matchExpressionsNext :: Parser [MatchExpression]
 matchExpressionsNext = do
-  _ <- char ','
-  _ <- anyWhitespace
+  char_ ','
+  anyWhitespace
   matchExpressions
 
 ---- AST.Expression parsers ----
@@ -372,12 +372,12 @@ expressionParser = unfoldParts <$> readBinExprParts
 readBinExprParts :: Parser ([Expression], [BinOp])
 readBinExprParts = do
   e <- expr
-  _ <- anyLinearWhitespace
+  anyLinearWhitespace
   parts <- many $ try $ do
     op <- opParser
-    _ <- anyWhitespace
+    anyWhitespace
     e' <- expr
-    _ <- anyLinearWhitespace
+    anyLinearWhitespace
     return (op, e')
   let (ops, es) = unzip parts
   return (e : es, ops)
@@ -421,7 +421,7 @@ expr = do
 
 accessExpr :: Expression -> Parser Expression
 accessExpr left = do
-  _ <- char '.'
+  char_ '.'
   right <- valueName
   let e = E.Access [] left right
   try (accessExpr e) <|> return e
@@ -435,33 +435,33 @@ valueExpr = E.Val [] <$> valueParser
 unaryExpr :: Parser Expression
 unaryExpr = do
   op <- unaryOpParser
-  _ <- anyWhitespace
+  anyWhitespace
   E.Unary [] op <$> expressionParser
 
 callExpr :: Parser Expression
 callExpr = do
   fn <- varExpr
-  _ <- char '('
-  _ <- anyWhitespace
+  char_ '('
+  anyWhitespace
   args <- choice [fnCallArg, argsEnd]
   return $ E.Call [] fn args
 
 fnCallArg :: Parser [Expression]
 fnCallArg = do
   arg <- expressionParser
-  _ <- anyWhitespace
+  anyWhitespace
   rest <- choice [fnCallNextArg, argsEnd]
   return $ arg : rest
 
 fnCallNextArg :: Parser [Expression]
 fnCallNextArg = do
-  _ <- char ','
-  _ <- anyWhitespace
+  char_ ','
+  anyWhitespace
   fnCallArg
 
 argsEnd :: Parser [a]
 argsEnd = do
-  _ <- char ')'
+  char_ ')'
   return []
 
 castExpr :: Parser Expression
@@ -471,11 +471,11 @@ castExpr = do
 
 parenExpr' :: Parser Expression
 parenExpr' = do
-  _ <- char '('
-  _ <- anyWhitespace
+  char_ '('
+  anyWhitespace
   ex <- expressionParser
-  _ <- anyWhitespace
-  _ <- char ')'
+  anyWhitespace
+  char_ ')'
   return ex
 
 varExpr :: Parser Expression
@@ -490,20 +490,20 @@ structValueParser :: Parser Value
 structValueParser = do
   typ <- typeName
   mfields <- optionMaybe $ try $ do
-    _ <- string "{"
-    _ <- anyWhitespace
+    string_ "{"
+    anyWhitespace
     fields <- sepEndBy structFieldValue any1Whitespace
-    _ <- string "}"
+    string_ "}"
     return fields
   return $ E.StructVal [] typ (fromMaybe [] mfields)
 
 structFieldValue :: Parser (String, Expression)
 structFieldValue = do
   field <- valueName
-  _ <- string ":"
-  _ <- anyLinearWhitespace
+  string_ ":"
+  anyLinearWhitespace
   value <- expressionParser
-  _ <- string ","
+  string_ ","
   return (field, value)
 
 stringParser :: Parser Value
@@ -530,14 +530,14 @@ float start = do
 
 floatingPart :: Parser String
 floatingPart = do
-  _ <- char '.'
+  char_ '.'
   ds <- optionMaybe digits
   exPart <- optionMaybe exponentPart
   return ('.' : unwrapOr ds "0" ++ maybeEmpty exPart)
 
 exponentPart :: Parser String
 exponentPart = do
-  _ <- char 'e'
+  char_ 'e'
   sign <- choice [string "+", string "-", string ""]
   ds <- many digit
   return ('e' : sign ++ ds)
@@ -614,8 +614,8 @@ simpleTypeDefParser = addLocation $ tryAll parsers
 
 enumTypeParser :: Parser TypeDecl
 enumTypeParser = do
-  _ <- string "enum:"
-  _ <- statementSep
+  string_ "enum:"
+  statementSep
   options <- block enumField
   return $ T.Enum [] options
 
@@ -630,46 +630,46 @@ enumField = withPos $ do
 
 enumOptionFields :: Parser [(String, TypeDecl)]
 enumOptionFields = do
-  _ <- char ':'
-  _ <- statementSep
+  char_ ':'
+  statementSep
   block structField
 
 structTypeParser :: Parser TypeDecl
 structTypeParser = do
-  _ <- string "struct:"
-  _ <- statementSep
+  string_ "struct:"
+  statementSep
   T.Struct [] <$> block structField
 
 structField :: Parser (String, TypeDecl)
 structField = do
   name <- valueName
-  _ <- any1LinearWhitespace
+  any1LinearWhitespace
   typ <- addLocation simpleTypeDefParser
-  _ <- statementSep
+  statementSep
   return (name, typ)
 
 
 funcTypeParser :: Parser TypeDecl
 funcTypeParser = do
   -- TODO: Does this need to accept generics here?
-  _ <- string "fn("
+  string_ "fn("
   argDecls <- sepBy (indented *> simpleTypeDefParser) commaSep
   -- TODO: Accept trailing commas
   _ <- atOrBelow *> string ")"
-  _ <- any1LinearWhitespace
+  any1LinearWhitespace
   T.Function [] [] argDecls <$> simpleTypeDefParser
 
 
 classDefParser :: Parser TypeDecl
 classDefParser = do
-  _ <- string "class:"
+  string_ "class:"
   statementSep
   T.ClassDecl [] <$> block (addLocation classMethod)
 
 classMethod :: Parser ClassMethod
 classMethod = do
   string_ "fn"
-  _ <- any1LinearWhitespace
+  any1LinearWhitespace
   name <- valueName
 
   string_ "("
@@ -677,8 +677,10 @@ classMethod = do
   argTypes <- sepBy simpleTypeDefParser commaSep
   string_ ")"
 
-  _ <- any1LinearWhitespace
+  any1LinearWhitespace
   retType <- simpleTypeDefParser
+
+  statementSep
 
   let gens = [] -- TODO
   let preds = [] -- TODO
@@ -688,9 +690,9 @@ classMethod = do
 genericType :: Parser TypeDecl
 genericType = do
   name <- typeParser
-  _ <- string "<"
+  string_ "<"
   parts <- sepBy simpleTypeDefParser commaSep
-  _ <- string ">"
+  string_ ">"
   return $ T.Generic [] name parts
 
 namedType :: Parser TypeDecl
@@ -703,6 +705,11 @@ string_ s = do
   _ <- string s
   return ()
 
+char_ :: Char -> Parser ()
+char_ c = do
+  _  <- char c
+  return ()
+
 tryAll :: [Parser a] -> Parser a
 tryAll = choice . map try
 
@@ -711,19 +718,19 @@ choices = choice . map (try . pair2parser)
 
 pair2parser :: (String, a) -> Parser a
 pair2parser (str, result) = do
-  _ <- string str
+  string_ str
   return result
 
 doubleQuotedString :: Parser String
 doubleQuotedString = do
-  _ <- char '"'
+  char_ '"'
   stringContents <- many $ choice [escapedChar, many1 $ noneOf "\\\""]
-  _ <- char '"'
+  char_ '"'
   return $ concat stringContents
 
 escapedChar :: Parser String
 escapedChar = do
-  _ <- char '\\'
+  char_ '\\'
   c <- anyChar
   case c of
    'n'  -> return "\n"
@@ -746,19 +753,23 @@ valueName = do
   when (name `elem` keywords) (fail $ "Cannot use a keyword as a variable name: " ++ name)
   return name
 
-anyWhitespaceS :: Parser String
+ignore :: Parser a -> Parser ()
+ignore parser = do
+  _ <- parser
+  return ()
+
+anyWhitespaceS :: Parser ()
 -- `try` is needed here so that it can back out of parsing a division operator
-anyWhitespaceS = many1 anyWhitespaceCh <|> try parseComment
+anyWhitespaceS =
+  ignore (many1 anyWhitespaceCh <|> try parseComment)
 
-anyWhitespace :: Parser String
-anyWhitespace = do
-  whitespaces <- many anyWhitespaceS
-  return $ concat whitespaces
+anyWhitespace :: Parser ()
+anyWhitespace =
+  ignore $ many anyWhitespaceS
 
-any1Whitespace :: Parser String
-any1Whitespace = do
-  whitespaces <- many1 anyWhitespaceS
-  return $ concat whitespaces
+any1Whitespace :: Parser ()
+any1Whitespace =
+  ignore $ many1 anyWhitespaceS
 
 whitespaceChs :: String
 whitespaceChs = " \t\r\n"
@@ -769,11 +780,11 @@ anyWhitespaceCh = oneOf whitespaceChs
 linearWhitespaceCh :: Parser Char
 linearWhitespaceCh = oneOf " \t"
 
-anyLinearWhitespace :: Parser String
-anyLinearWhitespace = many linearWhitespaceCh
+anyLinearWhitespace :: Parser ()
+anyLinearWhitespace = ignore $ many linearWhitespaceCh
 
-any1LinearWhitespace :: Parser String
-any1LinearWhitespace = many1 linearWhitespaceCh
+any1LinearWhitespace :: Parser ()
+any1LinearWhitespace = ignore $ many1 linearWhitespaceCh
 
 -- Indentation parser utility
 atOrBelow :: (Monad m, Stream s (IndentT m) z) => IndentParserT s u m ()
@@ -781,8 +792,8 @@ atOrBelow = indented <|> checkIndent
 
 commaSep :: Parser ()
 commaSep = do
-  _ <- string ","
-  _ <- any1LinearWhitespace
+  string_ ","
+  any1LinearWhitespace
   return ()
 
 parseComment :: Parser String

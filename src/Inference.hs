@@ -977,6 +977,8 @@ typeFromDecl gmap tdecl = case tdecl of
     error "shouldn't see a Struct here"
   T.Enum{} ->
     error "shouldn't see an Enum here"
+  T.ClassDecl{} ->
+    error "shouldn't see an Class here"
 
 predFromAST :: Map String Type -> T.Predicate a -> InferM Predicate
 predFromAST gmap tpred = do
