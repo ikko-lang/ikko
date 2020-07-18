@@ -5,12 +5,14 @@ module AST.Declaration where
 import AST.Annotation (Annotated)
 import AST.Expression (Expression)
 import AST.Statement (Statement)
-import AST.Type (Type, TypeDecl, TypeDef, defName)
+import AST.Type (TypeDecl, TypeDef, FuncType, defName)
 
 import Util.PrettyPrint (Render, PrettyPrint, render, printLines, writeLine, writeComment)
 import Util.Functions (commaSep)
 
+
 type File a = [Declaration a]
+
 
 data Declaration a
   = Let a String (Maybe (TypeDecl a)) (Expression a)
@@ -39,10 +41,6 @@ instance (Render a) => PrettyPrint (Declaration a) where
         return () -- ignore these
 
     return ""
-
--- This is a bit gross, but whatever
--- (generics, TFunc _ _)
-type FuncType a = ([Type], TypeDecl a)
 
 getDeclaredName :: Declaration a -> String
 getDeclaredName (Let      _ name _ _)   = name

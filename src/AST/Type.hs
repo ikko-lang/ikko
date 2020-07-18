@@ -13,6 +13,8 @@ data TypeDecl a
   | Function a [Predicate a] [TypeDecl a] (TypeDecl a)
   | Struct a [(String, TypeDecl a)]
   | Enum a [(String, EnumOption a)]
+  -- TODO: Superclasses
+  | ClassDecl a [ClassMethod a]
   deriving (Eq, Show, Functor, Foldable, Traversable)
 
 instance Annotated TypeDecl where
@@ -40,6 +42,19 @@ data TypeDef a
 
 instance Annotated TypeDef where
   --  use all default methods
+
+
+data ClassMethod a
+  = ClassMethod a String (FuncType a)
+  deriving (Eq, Show, Functor, Foldable, Traversable)
+
+instance Annotated ClassMethod where
+  -- use all default methods
+
+
+-- This is a bit gross, but whatever
+-- (generics, TFunc _ _)
+type FuncType a = ([Type], TypeDecl a)
 
 
 type EnumOption a = [(String, TypeDecl a)]

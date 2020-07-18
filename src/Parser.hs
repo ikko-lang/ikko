@@ -22,17 +22,18 @@ import Region (Position(..), Region(..))
 
 type File            = D.File Annotation
 type Declaration     = D.Declaration Annotation
-type FuncType        = D.FuncType Annotation
 type Statement       = S.Statement Annotation
 type MatchCase       = S.MatchCase Annotation
 type MatchExpression = S.MatchExpression Annotation
 type Expression      = E.Expression Annotation
 type Value           = E.Value Annotation
 type Type            = T.Type
+type FuncType        = T.FuncType Annotation
 type TypeDecl        = T.TypeDecl Annotation
 type TypeDef         = T.TypeDef Annotation
 type EnumOption      = T.EnumOption Annotation
 type Predicate       = T.Predicate Annotation
+type ClassMethod     = T.ClassMethod Annotation
 
 type Parser a = IndentParser String () a
 
@@ -160,6 +161,7 @@ requireJusts (Just t:ts) = do
   rest <- requireJusts ts
   return (t:rest)
 
+-- Type declarations cover structs, enums, and class definitions
 typeDeclaration :: Parser Declaration
 typeDeclaration = do
   _ <- string "type"
@@ -597,7 +599,14 @@ typeParser = string "()" <|> typeName
 
 typeDefParser :: Parser TypeDecl
 typeDefParser = addLocation $ tryAll parsers
-  where parsers = [enumTypeParser, structTypeParser, funcTypeParser, genericType, namedType]
+  where parsers =
+          [ enumTypeParser
+          , structTypeParser
+          , funcTypeParser
+          , classDefParser
+          , genericType
+          , namedType
+          ]
 
 simpleTypeDefParser :: Parser TypeDecl
 simpleTypeDefParser = addLocation $ tryAll parsers
@@ -642,6 +651,7 @@ structField = do
 
 funcTypeParser :: Parser TypeDecl
 funcTypeParser = do
+  -- TODO: Does this need to accept generics here?
   _ <- string "fn("
   argDecls <- sepBy (indented *> simpleTypeDefParser) commaSep
   -- TODO: Accept trailing commas
@@ -649,6 +659,31 @@ funcTypeParser = do
   _ <- any1LinearWhitespace
   T.Function [] [] argDecls <$> simpleTypeDefParser
 
+
+classDefParser :: Parser TypeDecl
+classDefParser = do
+  _ <- string "class:"
+  statementSep
+  T.ClassDecl [] <$> block (addLocation classMethod)
+
+classMethod :: Parser ClassMethod
+classMethod = do
+  string_ "fn"
+  _ <- any1LinearWhitespace
+  name <- valueName
+
+  string_ "("
+  -- TODO: Allow line wrapping with indentation (like funcTypeParser)
+  argTypes <- sepBy simpleTypeDefParser commaSep
+  string_ ")"
+
+  _ <- any1LinearWhitespace
+  retType <- simpleTypeDefParser
+
+  let gens = [] -- TODO
+  let preds = [] -- TODO
+  let typ = T.Function [] preds argTypes retType
+  return $ T.ClassMethod [] name (gens, typ)
 
 genericType :: Parser TypeDecl
 genericType = do
@@ -662,6 +697,11 @@ namedType :: Parser TypeDecl
 namedType = T.TypeName [] <$> typeParser
 
 ---- Helper functions ----
+
+string_ :: String -> Parser ()
+string_ s = do
+  _ <- string s
+  return ()
 
 tryAll :: [Parser a] -> Parser a
 tryAll = choice . map try
