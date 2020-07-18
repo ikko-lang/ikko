@@ -4,7 +4,7 @@ ikko: Makefile ikko.cabal stack.yaml src/*.hs
 lint:
 	hlint src/ --ignore "Reduce duplication"
 
-test: lint
+test:
 	stack test
 
 test-inference:
