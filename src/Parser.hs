@@ -32,6 +32,7 @@ type Type            = T.Type
 type TypeDecl        = T.TypeDecl Annotation
 type TypeDef         = T.TypeDef Annotation
 type EnumOption      = T.EnumOption Annotation
+type Predicate       = T.Predicate Annotation
 
 type Parser a = IndentParser String () a
 
@@ -100,19 +101,43 @@ funcDeclaration = do
   retType <- optionMaybe $ try $ do
     _ <- any1LinearWhitespace
     simpleTypeDefParser
-  mtype <- assembleFunctionType (fromMaybe [] gens) argTypes retType
+  mpredicates <- optionMaybe $ try $ do
+    _ <- any1Whitespace
+    whereClauseParser
+  mtype <- assembleFunctionType (fromMaybe [] gens) argTypes retType mpredicates
   _ <- char ':'
   _ <- statementSep
   D.Function [] name mtype args <$> blockStatement
 
-assembleFunctionType :: [Type] -> [Maybe TypeDecl] -> Maybe TypeDecl -> Parser (Maybe FuncType)
-assembleFunctionType gens argTypes retType =
-  if allNothings argTypes && isNothing retType
+
+whereClauseParser :: Parser [Predicate]
+whereClauseParser = do
+  _ <- string "where"
+  _ <- any1Whitespace
+  sepBy (addLocation predParser) commaSep
+
+predParser :: Parser Predicate
+predParser = do
+  tv <- typeParser
+  _ <- char ':'
+  _ <- any1LinearWhitespace
+  cls <- typeParser
+  return $ T.Predicate { T.predAnn=[], T.predClass=cls, T.predType=tv }
+
+assembleFunctionType
+  :: [Type]
+  -> [Maybe TypeDecl]
+  -> Maybe TypeDecl
+  -> Maybe [Predicate]
+  -> Parser (Maybe FuncType)
+assembleFunctionType gens argTypes retType predicates =
+  if allNothings argTypes && isNothing retType && isNothing predicates
   then return Nothing
   else do
     argTs <- requireJusts argTypes
     let retT = unwrapOr retType nilType
-    let typ = T.Function [] argTs retT
+    let preds = unwrapOr predicates []
+    let typ = T.Function [] preds argTs retT
     return $ Just (gens, typ)
 
 
@@ -622,7 +647,7 @@ funcTypeParser = do
   -- TODO: Accept trailing commas
   _ <- atOrBelow *> string ")"
   _ <- any1LinearWhitespace
-  T.Function [] argDecls <$> simpleTypeDefParser
+  T.Function [] [] argDecls <$> simpleTypeDefParser
 
 
 genericType :: Parser TypeDecl

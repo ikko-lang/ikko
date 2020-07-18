@@ -963,16 +963,26 @@ typeFromDecl gmap tdecl = case tdecl of
         t' <- applyCurrentSub t
         return (t', ps ++ concat genPreds)
       _ -> error $ "compiler bug " ++ show t
-  T.Function _ argTs retT -> do
+  T.Function _ predicates argTs retT -> do
     argTypes <- mapM (typeFromDecl gmap) argTs
     retType <- typeFromDecl gmap retT
-    let preds = concatMap snd (retType : argTypes)
-    return (makeFuncType (map fst argTypes) (fst retType), preds)
+    let preds = map predFromAST predicates
+    let innerPreds = concatMap snd (retType : argTypes)
+    case innerPreds of
+      (_:_) ->
+        error $ "expected no inner predicates here, got " ++ show innerPreds
+      []    ->
+        return (makeFuncType (map fst argTypes) (fst retType), preds)
   T.Struct{} ->
     error "shouldn't see a Struct here"
   T.Enum{} ->
     error "shouldn't see an Enum here"
 
+predFromAST :: T.Predicate a -> Predicate
+predFromAST tpred =
+  let name = T.predType tpred
+      typ = TCon name Star
+  in Pred (T.predClass tpred) typ
 
 typeFromName :: String -> InferM (Type, Preds)
 typeFromName name

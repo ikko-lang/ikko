@@ -6,16 +6,30 @@ import AST.Annotation (Annotated)
 
 type Type = String
 
+
 data TypeDecl a
   = TypeName a Type
   | Generic a Type [TypeDecl a]
-  | Function a [TypeDecl a] (TypeDecl a)
+  | Function a [Predicate a] [TypeDecl a] (TypeDecl a)
   | Struct a [(String, TypeDecl a)]
   | Enum a [(String, EnumOption a)]
   deriving (Eq, Show, Functor, Foldable, Traversable)
 
 instance Annotated TypeDecl where
   --  use all default methods
+
+
+data Predicate a
+  = Predicate
+    { predAnn   :: a
+    , predClass :: String
+    , predType  :: Type
+    }
+  deriving (Eq, Show, Functor, Foldable, Traversable)
+
+instance Annotated Predicate where
+  -- use all default methods
+
 
 data TypeDef a
   = TypeDef
@@ -26,5 +40,6 @@ data TypeDef a
 
 instance Annotated TypeDef where
   --  use all default methods
+
 
 type EnumOption a = [(String, TypeDecl a)]

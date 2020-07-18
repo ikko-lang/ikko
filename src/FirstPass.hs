@@ -244,10 +244,12 @@ convertDecl sub decl = case decl of
     genTypes <- mapM (convertDecl sub) gens
     let k = kindN $ length gens
     return $ applyTypes (TCon tname k) genTypes
-  T.Function _ argTs retT -> do
+  T.Function _ preds argTs retT -> do
     argTypes <- mapM (convertDecl sub) argTs
     retType <- convertDecl sub retT
-    return $ makeFuncType argTypes retType
+    case preds of
+      [] -> return $ makeFuncType argTypes retType
+      ps -> error $ "didn't expect predicates here: " ++ show ps
   T.Struct{}              ->
     withLocations [decl] $ Left InvalidAnonStructure
   T.Enum{}                ->
