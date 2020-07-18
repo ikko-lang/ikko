@@ -272,8 +272,8 @@ applyBOp op l r = case op of
   E.LessEq    -> numOp (\a b -> VBool $ a <= b) (\a b -> VBool $ a <= b) l r
   E.Greater   -> numOp (\a b -> VBool $ a >  b) (\a b -> VBool $ a >  b) l r
   E.GreaterEq -> numOp (\a b -> VBool $ a >= b) (\a b -> VBool $ a >= b) l r
-  E.Eq        -> numOp (\a b -> VBool $ a == b) (\a b -> VBool $ a == b) l r
-  E.NotEq     -> numOp (\a b -> VBool $ a /= b) (\a b -> VBool $ a /= b) l r
+  E.Eq        -> return $ VBool $ l == r
+  E.NotEq     -> return $ VBool $ l /= r
 
   E.BoolAnd   -> VBool <$> boolOp (&&)   l r
   E.BoolOr    -> VBool <$> boolOp (||)   l r
@@ -399,10 +399,11 @@ data Value
   | VClosure Scope Function
   | VVoid
   | VBuiltIn String -- name of the built-in function
+  deriving (Eq)
 
 data Function
   = Function [String] StatementT
-  deriving (Show)
+  deriving (Eq, Show)
 
 
 type Scope = [IORef (Map String Value)]

@@ -966,7 +966,7 @@ typeFromDecl gmap tdecl = case tdecl of
   T.Function _ predicates argTs retT -> do
     argTypes <- mapM (typeFromDecl gmap) argTs
     retType <- typeFromDecl gmap retT
-    let preds = map predFromAST predicates
+    preds <- mapM (predFromAST gmap) predicates
     let innerPreds = concatMap snd (retType : argTypes)
     case innerPreds of
       (_:_) ->
@@ -978,11 +978,13 @@ typeFromDecl gmap tdecl = case tdecl of
   T.Enum{} ->
     error "shouldn't see an Enum here"
 
-predFromAST :: T.Predicate a -> Predicate
-predFromAST tpred =
+predFromAST :: Map String Type -> T.Predicate a -> InferM Predicate
+predFromAST gmap tpred = do
   let name = T.predType tpred
-      typ = TCon name Star
-  in Pred (T.predClass tpred) typ
+  (typ, ps) <- typeFromDecl gmap (T.TypeName [] name)
+  case ps of
+    [] -> return $ Pred (T.predClass tpred) typ
+    _  -> error $ "expected no recursive predicates: " ++ show ps
 
 typeFromName :: String -> InferM (Type, Preds)
 typeFromName name
