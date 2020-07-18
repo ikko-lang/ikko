@@ -1,6 +1,9 @@
 type Sized class:
     fn size(Self) Int
 
+type Use class:
+    fn use<T>(Self, T) ()
+
 // TODO: Method predicates
 // type Storage class:
 //     fn store<T>(Self, T) where T: Sized

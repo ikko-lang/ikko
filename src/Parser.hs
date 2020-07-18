@@ -671,6 +671,8 @@ classMethod = do
   string_ "fn"
   any1LinearWhitespace
   name <- valueName
+  mgens <- optionMaybe $ try genericList
+  let gens = fromMaybe [] mgens
 
   string_ "("
   -- TODO: Allow line wrapping with indentation (like funcTypeParser)
@@ -682,7 +684,6 @@ classMethod = do
 
   statementSep
 
-  let gens = [] -- TODO
   let preds = [] -- TODO
   let typ = T.Function [] preds argTypes retType
   return $ T.ClassMethod [] name (gens, typ)
