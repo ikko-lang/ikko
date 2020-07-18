@@ -4,9 +4,8 @@ type Sized class:
 type Use class:
     fn use<T>(Self, T) ()
 
-// TODO: Method predicates
-// type Storage class:
-//     fn store<T>(Self, T) where T: Sized
+type Storage class:
+    fn store<T>(Self, T) () where T: Sized
 
 // TODO: Superclasses
 // type Ord class extends Eq:

@@ -682,10 +682,14 @@ classMethod = do
   any1LinearWhitespace
   retType <- simpleTypeDefParser
 
+  mpredicates <- optionMaybe $ try $ do
+    any1Whitespace
+    whereClauseParser
+  let predicates = fromMaybe [] mpredicates
+
   statementSep
 
-  let preds = [] -- TODO
-  let typ = T.Function [] preds argTypes retType
+  let typ = T.Function [] predicates argTypes retType
   return $ T.ClassMethod [] name (gens, typ)
 
 genericType :: Parser TypeDecl
