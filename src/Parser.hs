@@ -59,7 +59,7 @@ fileParser = do
 
 declarationParser :: Parser Declaration
 declarationParser =
-  withPos $ addLocation $ choice [letDeclaration, funcDeclaration, typeDeclaration]
+  withPos $ addLocation $ choice [letDeclaration, funcDeclaration, typeDeclaration, instanceDeclaration]
 
 letDeclaration :: Parser Declaration
 letDeclaration = do
@@ -187,6 +187,20 @@ mustBeTypeName :: TypeDecl -> Parser Type
 mustBeTypeName decl = case decl of
   T.TypeName _ name -> return name
   _ -> fail "invalid generic parameter in type to declare"
+
+
+instanceDeclaration :: Parser Declaration
+instanceDeclaration = do
+  string_ "instance"
+  any1LinearWhitespace
+  cls <- typeName
+  any1LinearWhitespace
+  declared <- simpleTypeDefParser
+  tdef <- mustBeTDef declared
+  char_ ':'
+  statementSep
+  D.Instance [] cls tdef <$> block declarationParser
+
 
 type ArgDecls = [(String, Maybe TypeDecl)]
 
@@ -663,7 +677,7 @@ funcTypeParser = do
 classDefParser :: Parser TypeDecl
 classDefParser = do
   string_ "class"
-  
+
   msupers <- optionMaybe $ try $ do
     any1LinearWhitespace
     string_ "extends"

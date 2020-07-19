@@ -130,6 +130,7 @@ type DeclMap = Map String DeclarationT
 
 ensureDeclsAreUnique :: FileT -> Result DeclMap
 ensureDeclsAreUnique [] = return Map.empty
+ensureDeclsAreUnique (Instance{}:ds) = ensureDeclsAreUnique ds
 ensureDeclsAreUnique (d:ds) = do
   rest <- ensureDeclsAreUnique ds
   let name = getDeclaredName d

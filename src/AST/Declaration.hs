@@ -18,6 +18,7 @@ data Declaration a
   = Let a String (Maybe (TypeDecl a)) (Expression a)
   | Function a String (Maybe (FuncType a)) [String] (Statement a)
   | TypeDef a (TypeDef a) (TypeDecl a)
+  | Instance a String (TypeDef a) [Declaration a] -- class, type, methods
   deriving (Eq, Show, Functor, Foldable, Traversable)
 
 instance Annotated Declaration where
@@ -39,6 +40,8 @@ instance (Render a) => PrettyPrint (Declaration a) where
         return ()
       TypeDef{}                   ->
         return () -- ignore these
+      Instance{}                  ->
+        return () -- ignore these for now
 
     return ""
 
@@ -46,3 +49,4 @@ getDeclaredName :: Declaration a -> String
 getDeclaredName (Let      _ name _ _)   = name
 getDeclaredName (Function _ name _ _ _) = name
 getDeclaredName (TypeDef  _ tdef _)     = defName tdef
+getDeclaredName (Instance _ _ tdef _)   = defName tdef
