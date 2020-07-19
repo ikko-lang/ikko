@@ -95,19 +95,54 @@ firstPass file = do
   mapM_ checkReturns binds
   mapM_ checkDupVars binds
 
-  -- TODO: add classes and instances from the file
-  let ce = makeClassEnv
+  let ce = startingClassEnv
+  ce' <- foldM addClass ce (gatherClasses file)
+  ce'' <- foldM addInstance ce' (gatherInstances file)
 
   return Module
     { bindings=binds
     , constructors=ctors
-    , classEnv=ce }
+    , classEnv=ce'' }
 
 makeInst :: String -> Type -> Inst
 makeInst c t = Qual [] (Pred c t)
 
-makeClassEnv :: ClassEnv
-makeClassEnv =
+{-
+TODO:
+
+Things to check for class declarations:
+
+* Unique name (among classes and other types)
+* Has at least one method
+* All methods involve Self type at least once
+* Methods don't use class's type besides as Self
+* Methods don't use Self as a predicate
+* Superclasses exist
+* Superclass hierarchy is acyclic
+
+Things to check for instance declarations:
+
+* Class exists (and type is a class)
+* Unique type for instance
+* Valid type for instance (not an alias)
+* (later) Either the class or the type is declared in this module
+* The only declarations inside the class are functions
+* The methods match the class's methods (name, argument count, position of self)
+* The methods don't have a declared type
+
+
+Processing to do:
+
+* Add classes to the class env
+* Add instances to the class env
+* Add methods from classes to the environment
+* Convert instance methods to "hidden," explicitly typed bindings?
+
+
+-}
+
+startingClassEnv :: ClassEnv
+startingClassEnv =
   let builtinClasses = Map.fromList
         [ ("Eq",   Class
                    { superclasses=[]
@@ -125,6 +160,45 @@ makeClassEnv =
   in ClassEnv
      { classes=builtinClasses,
        defaults=[tInt, tFloat] }
+
+
+data ClassDefinition
+  = ClassDefinition
+    { cdName :: String
+    , cdSupers :: [String]
+    }
+
+data InstanceDefinition
+  = InstanceDefinition
+    { idType :: TypeDefT
+    , idClass :: String
+    }
+
+-- TODO: Extend this to check validity of class
+addClass :: ClassEnv -> ClassDefinition -> Result ClassEnv
+addClass ce cdef = do
+  let name = cdName cdef
+  let alreadyDefined = Map.member name (classes ce)
+  when alreadyDefined $
+    -- Improvement: Add location
+    Left $ DuplicateClass name
+  let cls = Class { superclasses=cdSupers cdef, instances=[] }
+  let newClasses = Map.insert name cls (classes ce)
+  return ce { classes=newClasses }
+
+-- TODO: Extend this to check the validity of the instance
+addInstance :: ClassEnv -> InstanceDefinition -> Result ClassEnv
+addInstance ce _ = return ce -- TODO
+
+gatherClasses :: FileT -> [ClassDefinition]
+gatherClasses declarations =
+  [ ClassDefinition { cdName=getDeclaredName d, cdSupers=supers }
+  | d@(D.TypeDef _ _ (T.ClassDecl _ supers _)) <- declarations ]
+
+gatherInstances :: FileT -> [InstanceDefinition]
+gatherInstances declarations =
+  [ InstanceDefinition { idType=typ, idClass=cls }
+  | D.Instance _ cls typ _ <- declarations ]
 
 type DeclMap = Map String DeclarationT
 
@@ -275,6 +349,8 @@ checkReturns TypeDef{} =
   return ()
 checkReturns Let{} =
   return ()
+checkReturns Instance{} =
+  return ()
 checkReturns (Function _ name _ _ stmt) = do
   _ <- checkStmtsReturn name Never [stmt]
   return ()
@@ -282,6 +358,7 @@ checkReturns (Function _ name _ _ stmt) = do
 checkDupVars :: DeclarationT -> Result ()
 checkDupVars decl = case decl of
   TypeDef{}          -> return ()
+  Instance{}         -> return ()
   Let _ _ _ e        -> checkDupVarsExpr e
   Function _ _ _ _ s -> checkDupVarsStmt s
 

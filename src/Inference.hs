@@ -172,7 +172,7 @@ isImplicit :: DeclarationT -> Bool
 isImplicit = not . isExplicit
 
 isExplicit :: DeclarationT -> Bool
-isExplicit decl = case decl of
+isExplicit decl = case decl of -- TODO: Instances
   D.Let      _ _ mt _   -> isJust mt
   D.Function _ _ mt _ _ -> isJust mt
   D.TypeDef{}           -> error "shouldn't see a typedef here"
@@ -198,7 +198,7 @@ class Depencencies a where
   findDependencies :: Set String -> a -> [String]
 
 instance Depencencies (D.Declaration Annotation) where
-  findDependencies bound decl = case decl of
+  findDependencies bound decl = case decl of -- TODO: Instances
     D.Let _ name _  exp ->
       findDependencies (Set.insert name bound) exp
     D.Function _ name _ args stmt ->
@@ -452,7 +452,7 @@ getExplicitTypes expls = do
   return $ Map.fromList typed
 
 getExplicitType :: (name, DeclarationT) -> InferM (name, Scheme)
-getExplicitType (name, decl) = case decl of
+getExplicitType (name, decl) = case decl of -- TODO: Instances
   D.Let _ _ mtdecl _ -> do
     let (Just tdecl) = mtdecl
     (t, ps) <- withLocations [decl] $ typeFromDecl Map.empty tdecl
@@ -567,7 +567,7 @@ containsGenerics t = case t of
 
 
 inferDecl :: Environment -> DeclarationT -> InferM (DeclarationT, Preds)
-inferDecl env decl = case decl of
+inferDecl env decl = case decl of -- TODO: instances
   D.Let a name mtype expr -> do
     (expr', t, ps) <- inferExpr env expr
     return (addType t $ D.Let a name mtype expr', ps)

@@ -14,7 +14,7 @@ import qualified AST.Type as T
 
 import FirstPass
   ( Module(..)
-  , makeClassEnv )
+  , startingClassEnv )
 
 import Types
   ( Substitution
@@ -613,7 +613,7 @@ makeModule bindings =
   in Module
      { bindings=bindMap
      , constructors=Map.empty
-     , classEnv=makeClassEnv }
+     , classEnv=startingClassEnv }
 
 
 findGroups :: [(String, DeclarationT)] -> [[String]]
@@ -728,9 +728,9 @@ runInstantiate sch =
   let (Right (t, _)) = inferEmpty (freshInst sch)
   in t
 
-inferEmpty = runInfer Map.empty makeClassEnv
+inferEmpty = runInfer Map.empty startingClassEnv
 
-inferWithSub = runInferWithSub Map.empty makeClassEnv
+inferWithSub = runInferWithSub Map.empty startingClassEnv
 
 
 assertNoGenerics :: Type -> Assertion

@@ -15,6 +15,7 @@ data Error
   | ContextTooWeak String
   | CompilerBug String
   | DuplicateBinding String -- binding name
+  | DuplicateClass String
   | ParseError String
   | CannotCast String -- a message
   | UndefinedVar String -- variable name
