@@ -16,11 +16,13 @@ data Error
   | CompilerBug String
   | DuplicateBinding String -- binding name
   | DuplicateClass String
+  | DuplicateInstance String Type -- class, type
   | ParseError String
   | CannotCast String -- a message
   | UndefinedVar String -- variable name
   | UndefinedField String String -- struct name, field name
   | UndefinedType String -- type name
+  | UndefinedClass String
   | NonStructureType String -- type name
   | StructFieldErr String String -- type name, message
   | PatternErr String -- message
@@ -28,6 +30,7 @@ data Error
   | InsufficientlyDefinedType
   | Unreachable String -- function name
   | MissingReturn String -- function name
+  | MalformedType String -- explanation
   | WithLocations [Region] Error -- wrap another error, adding a location
   | ContextReduction Predicate
   | Ambiguity [Predicate]

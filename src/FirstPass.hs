@@ -188,7 +188,30 @@ addClass ce cdef = do
 
 -- TODO: Extend this to check the validity of the instance
 addInstance :: ClassEnv -> InstanceDefinition -> Result ClassEnv
-addInstance ce _ = return ce -- TODO
+addInstance ce idef = do
+  let className = idClass idef
+  cls <- case Map.lookup className (classes ce) of
+    -- Improvement: Add location
+    Nothing -> Left $ UndefinedClass className
+    Just c  -> return c
+  cls' <- insertInstance idef cls
+  let newClasses = Map.insert className cls' (classes ce)
+  return ce { classes=newClasses}
+
+insertInstance :: InstanceDefinition -> Class -> Result Class
+insertInstance idef cls = do
+  typ <- convertDef $ idType idef
+  let className = idClass idef
+  let existingInstances = instances cls
+  let inst = makeInst className typ
+  when (hasMatchingInstance existingInstances inst) $
+    Left $ DuplicateInstance className typ
+  return cls { instances=inst:existingInstances }
+
+hasMatchingInstance :: [Inst] -> Inst -> Bool
+hasMatchingInstance existing inst =
+  -- TODO: Should extend to more general 'unifies' logic
+  inst `elem` existing
 
 gatherClasses :: FileT -> [ClassDefinition]
 gatherClasses declarations =
@@ -335,6 +358,22 @@ convertDecl sub decl = case decl of
     withLocations [decl] $ Left InvalidAnonStructure
   T.ClassDecl{}           ->
     withLocations [decl] $ Left InvalidAnonStructure
+
+convertDef :: TypeDefT -> Result Type
+convertDef (T.TypeDef _ name gens) = do
+  let dups = duplicates gens
+  unless (null dups) $
+    Left $ MalformedType $ "type variable used twice: " ++ show dups
+  let k = kindN $ length gens
+  let genTypes = map simpleType gens
+  return $ applyTypes (TCon name k) genTypes
+
+duplicates :: (Eq a) => [a] -> [a]
+duplicates [] = []
+duplicates (x:xs) =
+  if x `elem` xs
+  then x : duplicates xs
+  else duplicates xs
 
 -- select and deduplicate function and let bindings
 gatherBindings :: DeclMap -> Result (Map String DeclarationT)
