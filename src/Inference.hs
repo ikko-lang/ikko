@@ -3,7 +3,6 @@
 module Inference
   ( inferModule
   , mgu
-  , startingEnv
   , runInfer
   , runInferWithSub
   , inferExpr
@@ -65,6 +64,7 @@ import Types
   , Class(..)
   , ClassEnv(..)
   , Types
+  , Environment
   , instantiate
   , makeFuncType
   , makeVar
@@ -133,7 +133,7 @@ inferModule m =
 inferProgram :: Module -> InferM InferResult
 inferProgram m = do
   let bindGroup = makeBindGroup m
-  (binds, env, ps) <- inferBindGroup bindGroup startingEnv
+  (binds, env, ps) <- inferBindGroup bindGroup (rootEnv m)
 
   -- Reduce the predicates
   ps' <- applyCurrentSub ps
@@ -310,8 +310,6 @@ startingInferState ctors ce =
 -- type synonym isn't allowed here.
 type InferM = StateT InferState (Either Error)
 
-type Environment = Map String Scheme
-
 -- toAdd, existing
 addToEnv :: Environment -> Environment -> Environment
 addToEnv = Map.union
@@ -320,12 +318,6 @@ instance Types Environment where
   apply sub = Map.map (apply sub)
   freeTypeVars env =
     Map.foldr Set.union Set.empty (Map.map freeTypeVars env)
-
--- TODO: this should also start with prelude and imported names
-startingEnv :: Environment
-startingEnv =
-  Map.fromList
-  [ ("print", Scheme [Star] (Qual [] $ makeFuncType [TGen 0 Star] tUnit)) ]
 
 runInfer :: Monad m => Map String Constructor
          -> ClassEnv -> StateT InferState m a -> m a

@@ -30,6 +30,7 @@ import Types
   , Inst
   , Class(..)
   , ClassEnv(..)
+  , Environment
   , simpleType
   , simpleVar
   , makeSub
@@ -61,6 +62,8 @@ data Module =
   { bindings :: Map String DeclarationT
   , constructors :: Map String Constructor
   , classEnv :: ClassEnv
+  -- rootEnv contains names that are assumed to be defined when type inference runs
+  , rootEnv :: Environment
   }
   deriving (Show)
 
@@ -102,7 +105,16 @@ firstPass file = do
   return Module
     { bindings=binds
     , constructors=ctors
-    , classEnv=ce'' }
+    , classEnv=ce''
+    , rootEnv=startingEnv }
+
+
+-- TODO: this should also start with prelude and imported names
+startingEnv :: Environment
+startingEnv =
+  Map.fromList
+  [ ("print", Scheme [Star] (Qual [] $ makeFuncType [TGen 0 Star] tUnit)) ]
+
 
 makeInst :: String -> Type -> Inst
 makeInst c t = Qual [] (Pred c t)

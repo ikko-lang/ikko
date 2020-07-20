@@ -301,3 +301,5 @@ data ClassEnv
   { classes :: Map String Class
   , defaults :: [Type] }
   deriving (Eq, Show)
+
+type Environment = Map String Scheme

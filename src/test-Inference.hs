@@ -14,7 +14,8 @@ import qualified AST.Type as T
 
 import FirstPass
   ( Module(..)
-  , startingClassEnv )
+  , startingClassEnv
+  , startingEnv )
 
 import Types
   ( Substitution
@@ -43,7 +44,6 @@ import Types
 
 import Inference
   ( mgu
-  , startingEnv
   , runInfer
   , runInferWithSub
   , inferExpr
@@ -613,7 +613,8 @@ makeModule bindings =
   in Module
      { bindings=bindMap
      , constructors=Map.empty
-     , classEnv=startingClassEnv }
+     , classEnv=startingClassEnv
+     , rootEnv=startingEnv }
 
 
 findGroups :: [(String, DeclarationT)] -> [[String]]
