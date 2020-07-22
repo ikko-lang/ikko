@@ -142,7 +142,9 @@ convertMethodType p (gens, tdecl) =
         _                     -> error $ "compiler bug: should only see a function type"
       preds = p : map convertPredicate predicates
       fn = T.Function [] [] args ret
-      typ = case convertDecl Map.empty fn of
+      -- annoying, but necessary to avoid creating a `TCon "Self"`:
+      sub = Map.singleton selfType selfType
+      typ = case convertDecl sub fn of
         Right t  -> t
         Left err -> error $ "unexpected error converting type: " ++ show err
   in Scheme kinds $ Qual preds $ typ
