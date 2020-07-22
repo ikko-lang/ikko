@@ -26,6 +26,7 @@ import Types
   , Predicate(..)
   , Qualified(..)
   , QualType
+  , envLookup
   , applyTypes
   , asScheme
   , composeSubs
@@ -602,7 +603,7 @@ assertModuleTypes :: String -> Scheme -> Result InferResult -> Assertion
 assertModuleTypes name sch result = case result of
   Left msg          -> assertFailure $ "failed to infer type for module: " ++ show msg
   Right inferResult ->
-    case Map.lookup name $ topLevelEnv inferResult of
+    case envLookup name $ topLevelEnv inferResult of
      Nothing        -> assertFailure $ "can't find " ++ name
      Just resultSch -> assertSchemeUnifies sch resultSch
 
@@ -646,7 +647,7 @@ assertDeclTypes (Qual ps t) ast = do
   let result = inferWithSub $ inferGroup startingEnv [(name, ast)]
   assertRight result
   let (Right ((typed, env, preds), sub)) = result
-  let (Just (Scheme _ (Qual resultPS resultT))) = Map.lookup name env
+  let (Just (Scheme _ (Qual resultPS resultT))) = envLookup name env
   assertMatches t resultT
   unless (ps == resultPS) $
     putStrLn $ "\n    sub: " ++ showSub sub

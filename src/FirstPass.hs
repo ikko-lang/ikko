@@ -30,7 +30,8 @@ import Types
   , Inst
   , Class(..)
   , ClassEnv(..)
-  , Environment
+  , Environment(..)
+  , envInsert
   , simpleType
   , simpleVar
   , makeSub
@@ -117,6 +118,7 @@ firstPass file = do
 -- TODO: this should also start with prelude and imported names
 startingEnv :: Environment
 startingEnv =
+  Environment $
   Map.fromList
   [ ("print", Scheme [Star] (Qual [] $ makeFuncType [TGen 0 Star] tUnit)) ]
 
@@ -129,9 +131,9 @@ addMethods e cd =
   in foldl (addMethod classPred) e (cdMethods cd)
 
 addMethod :: Predicate -> Environment -> ClassMethodT -> Environment
-addMethod p e (T.ClassMethod _ name funcType)  =
+addMethod p env (T.ClassMethod _ name funcType)  =
   let sch = convertMethodType p funcType
-  in Map.insert name sch e
+  in envInsert name sch env
 
 convertMethodType :: Predicate -> FuncTypeT -> Scheme
 convertMethodType p (gens, tdecl) =
@@ -139,7 +141,7 @@ convertMethodType p (gens, tdecl) =
       kinds = replicate (length gensWithSelf) Star
       (predicates, args, ret) = case tdecl of
         (T.Function _ ps a r) -> (ps, a, r)
-        _                     -> error $ "compiler bug: should only see a function type"
+        _                     -> error "compiler bug: should only see a function type"
       preds = p : map convertPredicate predicates
       fn = T.Function [] [] args ret
       -- annoying, but necessary to avoid creating a `TCon "Self"`:
@@ -147,7 +149,7 @@ convertMethodType p (gens, tdecl) =
       typ = case convertDecl sub fn of
         Right t  -> t
         Left err -> error $ "unexpected error converting type: " ++ show err
-  in Scheme kinds $ Qual preds $ typ
+  in Scheme kinds $ Qual preds typ
 
 convertPredicate :: PredicateT -> Predicate
 convertPredicate pt =

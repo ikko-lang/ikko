@@ -1,3 +1,5 @@
+{-# LANGUAGE FlexibleInstances #-}
+
 module Types where
 
 import Data.List (intercalate)
@@ -302,4 +304,30 @@ data ClassEnv
   , defaults :: [Type] }
   deriving (Eq, Show)
 
-type Environment = Map String Scheme
+newtype Environment = Environment (Map String Scheme)
+  deriving (Show)
+
+envInsert :: String -> Scheme -> Environment -> Environment
+envInsert name sch (Environment e) =
+  Environment $ Map.insert name sch e
+
+envLookup :: String -> Environment -> Maybe Scheme
+envLookup name (Environment e) =
+  Map.lookup name e
+
+envUnion :: Environment -> Environment -> Environment
+envUnion (Environment e1) (Environment e2) =
+  Environment $ Map.union e1 e2
+
+envKeys :: Environment -> [String]
+envKeys (Environment e) =
+  Map.keys e
+
+makeEnv :: [(String, Scheme)] -> Environment
+makeEnv = Environment . Map.fromList
+
+instance Types Environment where
+  apply sub (Environment names) =
+    Environment $ Map.map (apply sub) names
+  freeTypeVars (Environment names) =
+    Map.foldr Set.union Set.empty (Map.map freeTypeVars names)

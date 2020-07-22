@@ -36,8 +36,6 @@ import qualified Data.Set as Set
 import Data.Maybe (isJust)
 import Data.List ((\\), partition)
 
-import Debug.Trace
-
 import Control.Monad (when, foldM, zipWithM, msum)
 import Control.Monad.State (StateT, modify, get, gets, put, lift, evalStateT, mapStateT, runStateT)
 
@@ -64,7 +62,12 @@ import Types
   , Class(..)
   , ClassEnv(..)
   , Types
-  , Environment
+  , Environment(..)
+  , envLookup
+  , envInsert
+  , envUnion
+  , envKeys
+  , makeEnv
   , instantiate
   , makeFuncType
   , makeVar
@@ -172,10 +175,11 @@ isImplicit :: DeclarationT -> Bool
 isImplicit = not . isExplicit
 
 isExplicit :: DeclarationT -> Bool
-isExplicit decl = case decl of -- TODO: Instances
+isExplicit decl = case decl of
   D.Let      _ _ mt _   -> isJust mt
   D.Function _ _ mt _ _ -> isJust mt
   D.TypeDef{}           -> error "shouldn't see a typedef here"
+  D.Instance{}          -> True
 
 -- This walks each declaration to find out what the
 -- dependency graph looks like.
@@ -184,7 +188,7 @@ isExplicit decl = case decl of -- TODO: Instances
 gatherGraph :: Environment -> Set String -> Map String DeclarationT -> Map String [String]
 gatherGraph env explicitNames = Map.map (removeExpl . findDependencies given)
   where removeExpl deps = Set.toList $ setSubtract explicitNames $ Set.fromList deps
-        given = Set.fromList $ Map.keys env
+        given = Set.fromList $ envKeys env
 
 setSubtract :: (Ord a) => Set a -> Set a -> Set a
 setSubtract toRemove = Set.filter keep
@@ -195,12 +199,16 @@ class Depencencies a where
   findDependencies :: Set String -> a -> [String]
 
 instance Depencencies (D.Declaration Annotation) where
-  findDependencies bound decl = case decl of -- TODO: Instances
+  findDependencies bound decl = case decl of
     D.Let _ name _  exp ->
       findDependencies (Set.insert name bound) exp
     D.Function _ name _ args stmt ->
       findDependencies (Set.union bound $ Set.fromList (name:args)) stmt
     D.TypeDef{} ->
+      []
+    D.Instance{} ->
+      -- while the methods of an instance can certainly call other methods, they
+      -- don't matter for the order of typechecking, so they are ignored.
       []
 
 instance Depencencies (S.Statement Annotation) where
@@ -307,14 +315,6 @@ startingInferState ctors ce =
 -- type synonym isn't allowed here.
 type InferM = StateT InferState (Either Error)
 
--- toAdd, existing
-addToEnv :: Environment -> Environment -> Environment
-addToEnv = Map.union
-
-instance Types Environment where
-  apply sub = Map.map (apply sub)
-  freeTypeVars env =
-    Map.foldr Set.union Set.empty (Map.map freeTypeVars env)
 
 runInfer :: Monad m => Map String Constructor
          -> ClassEnv -> StateT InferState m a -> m a
@@ -378,12 +378,12 @@ inferBindGroup bg env = do
   let expls = explicitBindings bg
   explicitBindingTypes <- getExplicitTypes expls
 
-  let env1 = addToEnv explicitBindingTypes env
+  let env1 = envUnion explicitBindingTypes env
   let impls = implicitBindings bg
 
   (decls1, env2, ps1) <- inferGroups env1 impls
   let (bindings1, _) = toBindings decls1
-  let env' = addToEnv env2 env1
+  let env' = envUnion env2 env1
   decls2 <- tiExpls expls env'
   let (bindings2, ps2) = toBindings decls2
   -- ps1 and ps2 are _deferred_ predicates
@@ -408,7 +408,7 @@ tiExpls expls env = case expls of
 
 tiExpl ::  String -> DeclarationT -> Environment -> InferM (DeclarationT, Preds)
 tiExpl name decl env = do
-  let sch = mustLookup name env
+  let sch = mustLookupEnv name env
   (t, qs) <- freshInst sch
 
   (d, ps) <- inferDecl env decl
@@ -438,10 +438,10 @@ tiExpl name decl env = do
 getExplicitTypes :: [(String, DeclarationT)] -> InferM Environment
 getExplicitTypes expls = do
   typed <- mapM getExplicitType expls
-  return $ Map.fromList typed
+  return $ makeEnv typed
 
 getExplicitType :: (name, DeclarationT) -> InferM (name, Scheme)
-getExplicitType (name, decl) = case decl of -- TODO: Instances
+getExplicitType (name, decl) = case decl of
   D.Let _ _ mtdecl _ -> do
     let (Just tdecl) = mtdecl
     (t, ps) <- withLocations [decl] $ typeFromDecl Map.empty tdecl
@@ -457,6 +457,9 @@ getExplicitType (name, decl) = case decl of -- TODO: Instances
   D.TypeDef{} ->
     error "shouldn't see a typedef here"
 
+  D.Instance{} ->
+    error "shouldn't see an instance here"
+
 
 genericMap :: [T.Type] -> InferM (Map String Type)
 genericMap tnames = do
@@ -466,11 +469,11 @@ genericMap tnames = do
 inferGroups :: Environment -> [[(String, DeclarationT)]] ->
                InferM (TypedDecls, Environment, Preds)
 inferGroups _   []     =
-  return ([], Map.empty, [])
+  return ([], Environment Map.empty, [])
 inferGroups env (g:gs) = do
   (typed, env1, ps1) <- inferGroup env g
-  (rest, env2, ps2) <- inferGroups (Map.union env1 env) gs
-  return (typed ++ rest, Map.union env1 env2, ps1 ++ ps2)
+  (rest, env2, ps2) <- inferGroups (envUnion env1 env) gs
+  return (typed ++ rest, envUnion env1 env2, ps1 ++ ps2)
 
 inferGroup :: Environment -> [(String, DeclarationT)] ->
               InferM (TypedDecls, Environment, Preds)
@@ -479,8 +482,8 @@ inferGroup env impls = do
   ts <- mapM (const newStarVar) impls
   let bindingNames = map fst impls
   let bindingSchemes = map asScheme ts
-  let groupBindings = Map.fromList $ zip bindingNames bindingSchemes
-  let groupEnv = Map.union groupBindings env
+  let groupBindings = makeEnv $ zip bindingNames bindingSchemes
+  let groupEnv = envUnion groupBindings env
 
   -- Do the actual inference
   typedDecls <- inferDecls groupEnv impls ts
@@ -496,7 +499,7 @@ inferGroup env impls = do
   ce <- getClassEnv
   (deferred, retained) <- split ce fs (foldr1 Set.intersection vss) preds'
   let schemes = map (quantify gs . Qual retained) subbed
-  let resultEnv = Map.fromList $ zip bindingNames schemes
+  let resultEnv = makeEnv $ zip bindingNames schemes
   return (typedDecls, resultEnv, deferred)
 
 {-
@@ -512,7 +515,7 @@ inferDecls env decls ts = mapM infer (zip decls ts)
           return (name, d, ps)
 
 generalize :: Environment -> QualType -> Scheme
-generalize env qt =
+generalize (Environment env) qt =
   let envVars = foldl Set.union Set.empty $ map (freeTypeVars . snd) $ Map.toList env
   in generalizeOver envVars qt
 
@@ -556,7 +559,7 @@ containsGenerics t = case t of
 
 
 inferDecl :: Environment -> DeclarationT -> InferM (DeclarationT, Preds)
-inferDecl env decl = case decl of -- TODO: instances
+inferDecl env decl = case decl of
   D.Let a name mtype expr -> do
     (expr', t, ps) <- inferExpr env expr
     return (addType t $ D.Let a name mtype expr', ps)
@@ -568,15 +571,15 @@ inferDecl env decl = case decl of -- TODO: instances
     -- This case statement exists so that, by the time
     -- a field access is reached, the type of that variable
     -- will already be known.
-    ps1 <- case Map.lookup name env of
+    ps1 <- case envLookup name env of
       Nothing -> return []
       Just sc -> do
         (dt, ps) <- freshInst sc
         withLocations [stmt] $ unify dt (makeFuncType argTs retT)
         return ps
 
-    let argEnv = Map.fromList $ zip args (map asScheme argTs)
-    let env' = Map.union argEnv env
+    let argEnv = makeEnv $ zip args (map asScheme argTs)
+    let env' = envUnion argEnv env
     (stmt', stmtReturns, ps2) <- inferStmt env' stmt
     let funcReturns = toFunctionReturns stmtReturns
     withLocations [stmt] $ unifyAll retT funcReturns
@@ -588,6 +591,9 @@ inferDecl env decl = case decl of -- TODO: instances
 
   D.TypeDef{} ->
     inferErr $ CompilerBug "TypeDefs are not bindings"
+
+  D.Instance{} ->
+    inferErr $ CompilerBug "Instances are not treated as bindings"
 
 inferStmt :: Environment -> StatementT ->
              InferM (StatementT, DoesReturn, Preds)
@@ -682,7 +688,7 @@ inferMatchCase :: Environment -> Type -> MatchCaseT
                -> InferM (MatchCaseT, DoesReturn, Preds)
 inferMatchCase env t (S.MatchCase matchExpr stmt) = do
   (matchExpr', matchedVars, ps1) <- inferMatchExpr env t matchExpr
-  let env' = insertAll env matchedVars
+  let env' = insertAll matchedVars env
   (stmt', doesReturn, ps2) <- inferStmt env' stmt
   return (S.MatchCase matchExpr' stmt', doesReturn, ps1 ++ ps2)
 
@@ -753,8 +759,8 @@ inferBlock env (s:ss) = do
   let env' = case s' of
         S.Let _ name _ expr ->
           let sch = generalize env (Qual [] $ getType expr)
-          in Map.insert name sch env
-        _                  -> env
+          in envInsert name sch env
+        _                   -> env
   (ss', ret2, ps2) <- inferBlock env' ss
   return (s' : ss', appendReturns ret2 ret1, ps1 ++ ps2)
 
@@ -772,7 +778,9 @@ getStructFieldType t fieldName = case getRoot t of
     fieldSch <- case lookup fieldName fields of
       Nothing -> inferErr $ UndefinedField structName fieldName
       Just sc -> return sc
-    (fieldFn, ps) <- freshInst fieldSch -- TOOD: Use ps here?
+    (fieldFn, ps) <- freshInst fieldSch
+    when (ps /= []) $
+      inferErr $ CompilerBug $ "expected no predicates from a struct type, got " ++ show ps ++ " from " ++ structName
 
     unify fieldFn (makeFuncType [t] resultT)
     sub <- getSub
@@ -1014,7 +1022,7 @@ getConstructor tname = do
 
 
 lookupName :: String -> Environment -> InferM Scheme
-lookupName name env = case Map.lookup name env of
+lookupName name env = case envLookup name env of
   Nothing  -> inferErr $ UndefinedVar name
   Just sch -> return sch
 
@@ -1186,6 +1194,11 @@ getType :: (Annotated a) => a Annotation -> Type
 getType node =
   fromMaybe (error "must be typed") (Anno.getType node)
 
+mustLookupEnv :: String -> Environment -> Scheme
+mustLookupEnv name env =
+  let err = error $ "no variable bound for " ++ name
+  in fromMaybe err $ envLookup name env
+
 mustLookup :: (Ord k, Show k) => k -> Map k v -> v
 mustLookup key m =
   let err = error $ "nothing bound for " ++ show key
@@ -1203,11 +1216,11 @@ isRight _         = False
 --uncurry3 :: (a -> b -> c -> d) -> ((a, b, c) -> d)
 --uncurry3 fn (a, b, c) = fn a b c
 
-insertAll :: (Ord k) => Map k v -> [(k, v)] -> Map k v
-insertAll m ((k, v):kvs) =
-  insertAll (Map.insert k v m) kvs
-insertAll m [] =
-  m
+insertAll :: [(String, Scheme)] -> Environment -> Environment
+insertAll ((k, v):kvs) env =
+  insertAll kvs $ envInsert k v env
+insertAll []           env =
+  env
 
 -- This is not a great solution, ideally generalization would
 -- always pick new TGen generics from left to right,
