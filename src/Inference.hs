@@ -178,6 +178,7 @@ isExplicit decl = case decl of -- TODO: Instances
   D.TypeDef{}           -> error "shouldn't see a typedef here"
 
 -- TODO: extend this into prelude (plus imported names)
+-- TODO: Get this from the module's environment!!!
 startingDependencies :: Set String
 startingDependencies = Set.fromList ["print"]
 

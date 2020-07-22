@@ -55,6 +55,9 @@ type MatchExpressionT = S.MatchExpression Annotation
 type StatementT       = S.Statement       Annotation
 type TypeDeclT        = T.TypeDecl        Annotation
 type TypeDefT         = T.TypeDef         Annotation
+type FuncTypeT        = T.FuncType        Annotation
+type ClassMethodT     = T.ClassMethod     Annotation
+type PredicateT       = T.Predicate       Annotation
 
 
 data Module =
@@ -102,11 +105,13 @@ firstPass file = do
   ce' <- foldM addClass ce (gatherClasses file)
   ce'' <- foldM addInstance ce' (gatherInstances file)
 
+  let environment = foldl addMethods startingEnv (gatherClasses file)
+
   return Module
     { bindings=binds
     , constructors=ctors
     , classEnv=ce''
-    , rootEnv=startingEnv }
+    , rootEnv=environment }
 
 
 -- TODO: this should also start with prelude and imported names
@@ -115,6 +120,36 @@ startingEnv =
   Map.fromList
   [ ("print", Scheme [Star] (Qual [] $ makeFuncType [TGen 0 Star] tUnit)) ]
 
+selfType :: Type
+selfType = simpleVar "Self"
+
+addMethods :: Environment -> ClassDefinition -> Environment
+addMethods e cd =
+  let classPred = Pred (cdName cd) selfType
+  in foldl (addMethod classPred) e (cdMethods cd)
+
+addMethod :: Predicate -> Environment -> ClassMethodT -> Environment
+addMethod p e (T.ClassMethod _ name funcType)  =
+  let sch = convertMethodType p funcType
+  in Map.insert name sch e
+
+convertMethodType :: Predicate -> FuncTypeT -> Scheme
+convertMethodType p (gens, tdecl) =
+  let gensWithSelf = "Self" : gens
+      kinds = replicate (length gensWithSelf) Star
+      (predicates, args, ret) = case tdecl of
+        (T.Function _ ps a r) -> (ps, a, r)
+        _                     -> error $ "compiler bug: should only see a function type"
+      preds = p : map convertPredicate predicates
+      fn = T.Function [] [] args ret
+      typ = case convertDecl Map.empty fn of
+        Right t  -> t
+        Left err -> error $ "unexpected error converting type: " ++ show err
+  in Scheme kinds $ Qual preds $ typ
+
+convertPredicate :: PredicateT -> Predicate
+convertPredicate pt =
+  Pred (T.predClass pt) $ simpleType (T.predType pt)
 
 makeInst :: String -> Type -> Inst
 makeInst c t = Qual [] (Pred c t)
@@ -131,6 +166,7 @@ Things to check for class declarations:
 * Methods don't use Self as a predicate
 * Superclasses exist
 * Superclass hierarchy is acyclic
+* Method names that overlap with other classes or other bindings
 
 Things to check for instance declarations:
 
@@ -178,6 +214,7 @@ data ClassDefinition
   = ClassDefinition
     { cdName :: String
     , cdSupers :: [String]
+    , cdMethods :: [ClassMethodT]
     }
 
 data InstanceDefinition
@@ -227,8 +264,8 @@ hasMatchingInstance existing inst =
 
 gatherClasses :: FileT -> [ClassDefinition]
 gatherClasses declarations =
-  [ ClassDefinition { cdName=getDeclaredName d, cdSupers=supers }
-  | d@(D.TypeDef _ _ (T.ClassDecl _ supers _)) <- declarations ]
+  [ ClassDefinition { cdName=getDeclaredName d, cdSupers=supers, cdMethods=methods }
+  | d@(D.TypeDef _ _ (T.ClassDecl _ supers methods)) <- declarations ]
 
 gatherInstances :: FileT -> [InstanceDefinition]
 gatherInstances declarations =
