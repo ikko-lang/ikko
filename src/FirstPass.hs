@@ -216,15 +216,16 @@ startingClassEnv =
 
 data ClassDefinition
   = ClassDefinition
-    { cdName :: String
-    , cdSupers :: [String]
+    { cdName    :: String
+    , cdSupers  :: [String]
     , cdMethods :: [ClassMethodT]
     }
 
 data InstanceDefinition
   = InstanceDefinition
-    { idType :: TypeDefT
+    { idType  :: TypeDefT
     , idClass :: String
+    , idPreds :: [PredicateT]
     }
 
 -- TODO: Extend this to check validity of class
@@ -273,8 +274,8 @@ gatherClasses declarations =
 
 gatherInstances :: FileT -> [InstanceDefinition]
 gatherInstances declarations =
-  [ InstanceDefinition { idType=typ, idClass=cls }
-  | D.Instance _ cls typ _ <- declarations ]
+  [ InstanceDefinition { idType=typ, idClass=cls, idPreds=preds }
+  | D.Instance _ cls typ preds _ <- declarations ]
 
 type DeclMap = Map String DeclarationT
 

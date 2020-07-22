@@ -197,9 +197,16 @@ instanceDeclaration = do
   any1LinearWhitespace
   declared <- simpleTypeDefParser
   tdef <- mustBeTDef declared
+
+  mpredicates <- optionMaybe $ try $ do
+    any1Whitespace
+    whereClauseParser
+  let predicates = fromMaybe [] mpredicates
+
   char_ ':'
   statementSep
-  D.Instance [] cls tdef <$> block declarationParser
+
+  D.Instance [] cls tdef predicates <$> block declarationParser
 
 
 type ArgDecls = [(String, Maybe TypeDecl)]
