@@ -364,7 +364,7 @@ makeConstructors ((t,d):ts) constrs = do
 
     T.ClassDecl{}        ->
       -- Classes don't contribute constructors
-      return Map.empty
+      return constrs
   makeConstructors ts constrs'
 
 mustBeUnique :: String -> Map String b -> Result ()
