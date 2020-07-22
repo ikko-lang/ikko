@@ -156,7 +156,7 @@ makeBindGroup m =
   let declarations = bindings m
       (di, de) = splitExplicit declarations
       explicitNames = Set.fromList $ Map.keys de
-      graph = gatherGraph explicitNames di
+      graph = gatherGraph (rootEnv m) explicitNames di
       topoOrder = reverse $ components graph
       getBinding name = (name, mustLookup name declarations)
       impls = map (map getBinding) topoOrder
@@ -177,18 +177,14 @@ isExplicit decl = case decl of -- TODO: Instances
   D.Function _ _ mt _ _ -> isJust mt
   D.TypeDef{}           -> error "shouldn't see a typedef here"
 
--- TODO: extend this into prelude (plus imported names)
--- TODO: Get this from the module's environment!!!
-startingDependencies :: Set String
-startingDependencies = Set.fromList ["print"]
-
 -- This walks each declaration to find out what the
 -- dependency graph looks like.
 -- This assumes that all the variables are defined (TODO: that's
 -- never checked at the moment)
-gatherGraph :: Set String -> Map String DeclarationT -> Map String [String]
-gatherGraph explicitNames = Map.map (removeExpl . findDependencies startingDependencies)
+gatherGraph :: Environment -> Set String -> Map String DeclarationT -> Map String [String]
+gatherGraph env explicitNames = Map.map (removeExpl . findDependencies given)
   where removeExpl deps = Set.toList $ setSubtract explicitNames $ Set.fromList deps
+        given = Set.fromList $ Map.keys env
 
 setSubtract :: (Ord a) => Set a -> Set a -> Set a
 setSubtract toRemove = Set.filter keep
