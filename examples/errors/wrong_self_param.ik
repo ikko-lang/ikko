@@ -1,9 +1,9 @@
 type Foo class:
-    fn foo(Self) Int
+    fn foo(Self, Int) Int
 
 instance Foo Bool:
     // x should be called self
-    fn foo(x):
+    fn foo(x, self):
         return 0
 
 fn main():

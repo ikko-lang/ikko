@@ -1,5 +1,5 @@
 // TODO: Nothing catches this
-type Sized class extends Sized:
+type Sized class extends Self:
     fn size(Self) Int
 
 fn main():
