@@ -1,3 +1,4 @@
+// TODO
 type Foo class:
     fn foo(Self) Int
 

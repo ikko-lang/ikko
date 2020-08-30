@@ -163,19 +163,18 @@ TODO:
 
 Things to check for class declarations:
 
-* Unique name (among classes and other types)
-* Has at least one method
+* Unique name (among classes and other types) - global
 * All methods involve Self type at least once
 * Methods don't use class's type besides as Self
-* Methods don't use Self as a predicate
-* Superclasses exist
-* Superclass hierarchy is acyclic
-* Method names that overlap with other classes or other bindings
+* Superclasses exist - global
+* Superclass hierarchy is acyclic - global
+* Method names that overlap with other classes or other bindings - global
+* Generics don't use Self as the variable
 
 Things to check for instance declarations:
 
 * Class exists (and type is a class)
-* Unique type for instance
+* Unique type for instance - global
 * Valid type for instance (not an alias)
 * (later) Either the class or the type is declared in this module
 * The only declarations inside the class are functions
@@ -228,9 +227,9 @@ data InstanceDefinition
     , idPreds :: [PredicateT]
     }
 
--- TODO: Extend this to check validity of class
 addClass :: ClassEnv -> ClassDefinition -> Result ClassEnv
 addClass ce cdef = do
+  checkClass cdef
   let name = cdName cdef
   let alreadyDefined = Map.member name (classes ce)
   when alreadyDefined $
@@ -239,6 +238,63 @@ addClass ce cdef = do
   let cls = Class { superclasses=cdSupers cdef, instances=[] }
   let newClasses = Map.insert name cls (classes ce)
   return ce { classes=newClasses }
+
+-- checkClass checks things that are local to this class definition:
+--  * All methods involve Self type one or more times
+--  * Method names are only used once within the class
+--  * The class name is only used as Self
+checkClass :: ClassDefinition -> Result ()
+checkClass cdef = do
+  let name = cdName cdef
+  let methods = cdMethods cdef
+  ensureUniqueMethodNames name [n | T.ClassMethod _ n _ <- methods]
+  mapM_ (checkMethodType name) methods
+
+ensureUniqueMethodNames :: String -> [String] -> Result ()
+ensureUniqueMethodNames className methodNames =
+  let dups = duplicates methodNames
+  in if null dups
+     then return ()
+     else Left $ MalformedType (
+    "class " ++ className ++ " has multiple definitions for the method " ++ commaSep dups)
+
+-- Checks that:
+--  * the Self type is used at least once
+--  * the class's name isn't otherwise used directly (except in predicates)
+checkMethodType :: String -> ClassMethodT -> Result ()
+checkMethodType className (T.ClassMethod _ name funcType) = do
+  let (_generics, tdecl) = funcType
+  (argTs, retT) <- case tdecl of
+    T.Function _ _ps ats rt -> return (ats, rt)
+    _                       -> error "compiler bug"
+  let allTs = retT : argTs
+  let namesUsed = getNamesUsed allTs
+
+  let errPrefix = "method " ++ name ++ " in class " ++ className
+  let selfErrMessage = errPrefix ++ " must refer to Self at least once"
+  unless (Set.member "Self" namesUsed) $
+    Left $ MalformedType $ selfErrMessage
+
+  let classNameMessage = errPrefix ++ " should use Self to refer to the class " ++
+        "instead of using the name directly"
+  when (Set.member className namesUsed) $
+    Left $ MalformedType $ classNameMessage
+
+-- Get names of types, but not names in predicates
+getNamesUsed :: [T.TypeDecl a] -> Set T.Type
+getNamesUsed =
+  foldl (\names decl -> Set.union names (getNames decl)) Set.empty
+
+-- TODO: Should this consider non-generic names in the type part of a predicate?
+getNames :: T.TypeDecl a -> Set T.Type
+getNames tdecl = case tdecl of
+  T.TypeName _ t        -> Set.singleton t
+  -- TODO: Filter out generics from child:
+  T.Generic _ _ tds     -> getNamesUsed tds
+  T.Function _ _ args r -> getNamesUsed (r : args)
+  T.Struct _ fields     -> getNamesUsed (map snd fields)
+  T.Enum _ options      -> getNamesUsed (concatMap (map snd) $ map snd options)
+  T.ClassDecl _ _ _     -> error "should not have a class decl here"
 
 -- TODO: Extend this to check the validity of the instance
 addInstance :: ClassEnv -> InstanceDefinition -> Result ClassEnv
@@ -421,13 +477,6 @@ convertDef (T.TypeDef _ name gens) = do
   let k = kindN $ length gens
   let genTypes = map simpleType gens
   return $ applyTypes (TCon name k) genTypes
-
-duplicates :: (Eq a) => [a] -> [a]
-duplicates [] = []
-duplicates (x:xs) =
-  if x `elem` xs
-  then x : duplicates xs
-  else duplicates xs
 
 -- select and deduplicate function and let bindings
 gatherBindings :: DeclMap -> Result (Map String DeclarationT)

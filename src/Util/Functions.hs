@@ -1,5 +1,8 @@
 module Util.Functions where
 
+import Data.Set (Set)
+import qualified Data.Set as Set
+
 import Data.List (intercalate)
 
 mapFst :: (a -> b) -> [(a, c)] ->  [(b, c)]
@@ -23,3 +26,11 @@ swap (a, b) = (b, a)
 
 commaSep :: [String] -> String
 commaSep = intercalate ", "
+
+duplicates :: (Ord a) => [a] -> [a]
+duplicates = dups Set.empty Set.empty
+  where dups _    ds []     = Set.toList ds
+        dups seen ds (x:xs) =
+          if Set.member x seen
+          then dups seen                (Set.insert x ds) xs
+          else dups (Set.insert x seen) ds                xs

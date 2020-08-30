@@ -6,7 +6,7 @@ import AST.Annotation (Annotated)
 
 type Type = String
 
-
+-- TODO Refactor: This structure is a mess
 data TypeDecl a
   = TypeName a Type
   | Generic a Type [TypeDecl a]
