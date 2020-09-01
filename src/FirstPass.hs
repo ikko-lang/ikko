@@ -164,8 +164,8 @@ TODO:
 Things to check for class declarations:
 
 * Unique name (among classes and other types) - global
-* All methods involve Self type at least once
-* Methods don't use class's type besides as Self
+* All methods involve Self type at least once - done
+* Methods don't use class's type besides as Self - done
 * Superclasses exist - global
 * Superclass hierarchy is acyclic - global
 * Method names that overlap with other classes or other bindings - global
@@ -247,6 +247,8 @@ checkClass :: ClassDefinition -> Result ()
 checkClass cdef = do
   let name = cdName cdef
   let methods = cdMethods cdef
+  when ("Self" `elem` (cdSupers cdef)) $
+    Left $ MalformedType ("the class " ++ name ++ " should not extend Self")
   ensureUniqueMethodNames name [n | T.ClassMethod _ n _ <- methods]
   mapM_ (checkMethodType name) methods
 
