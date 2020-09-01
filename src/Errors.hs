@@ -22,6 +22,7 @@ data Error
   | UndefinedVar String -- variable name
   | UndefinedField String String -- struct name, field name
   | UndefinedType String -- type name
+  | UndefinedTypes String [String] -- message, type names
   | UndefinedClass String
   | NonStructureType String -- type name
   | StructFieldErr String String -- type name, message
@@ -31,9 +32,9 @@ data Error
   | Unreachable String -- function name
   | MissingReturn String -- function name
   | MalformedType String -- explanation
-  | WithLocations [Region] Error -- wrap another error, adding a location
   | ContextReduction Predicate
   | Ambiguity [Predicate]
+  | WithLocations [Region] Error -- wrap another error, adding a location
   deriving (Show, Eq)
 
 type Result a = Either Error a

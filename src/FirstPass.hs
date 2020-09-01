@@ -104,6 +104,7 @@ firstPass file = do
 
   let ce = startingClassEnv
   ce' <- foldM addClass ce (gatherClasses file)
+  checkClasses ce' binds
   ce'' <- foldM addInstance ce' (gatherInstances file)
 
   let environment = foldl addMethods startingEnv (gatherClasses file)
@@ -114,6 +115,28 @@ firstPass file = do
     , classEnv=ce''
     , rootEnv=environment }
 
+
+checkClasses :: ClassEnv -> Map String DeclarationT -> Result ()
+checkClasses ce binds = do
+  checkClassGraph ce
+  ensureNonOverlappingMethods ce binds
+
+checkClassGraph :: ClassEnv -> Result ()
+checkClassGraph ce = do
+  let classMap = classes ce
+  mapM_ (ensureSupersExist classMap) (Map.toList classMap)
+  return ()
+
+ensureSupersExist :: Map String Class -> (String, Class) -> Result ()
+ensureSupersExist classMap (name, cls) =
+  let missing = [super | super <- superclasses cls, not $ Map.member super classMap]
+  in if null missing
+     then return ()
+     else Left $ UndefinedTypes ("superclass type not found for class " ++ name) missing
+
+
+ensureNonOverlappingMethods :: ClassEnv -> Map String DeclarationT -> Result ()
+ensureNonOverlappingMethods _ _ = return ()
 
 -- TODO: this should also start with prelude and imported names
 startingEnv :: Environment
@@ -247,7 +270,7 @@ checkClass :: ClassDefinition -> Result ()
 checkClass cdef = do
   let name = cdName cdef
   let methods = cdMethods cdef
-  when ("Self" `elem` (cdSupers cdef)) $
+  when ("Self" `elem` cdSupers cdef) $
     Left $ MalformedType ("the class " ++ name ++ " should not extend Self")
   ensureUniqueMethodNames name [n | T.ClassMethod _ n _ <- methods]
   mapM_ (checkMethodType name) methods
@@ -275,12 +298,12 @@ checkMethodType className (T.ClassMethod _ name funcType) = do
   let errPrefix = "method " ++ name ++ " in class " ++ className
   let selfErrMessage = errPrefix ++ " must refer to Self at least once"
   unless (Set.member "Self" namesUsed) $
-    Left $ MalformedType $ selfErrMessage
+    Left $ MalformedType selfErrMessage
 
   let classNameMessage = errPrefix ++ " should use Self to refer to the class " ++
         "instead of using the name directly"
   when (Set.member className namesUsed) $
-    Left $ MalformedType $ classNameMessage
+    Left $ MalformedType classNameMessage
 
 -- Get names of types, but not names in predicates
 getNamesUsed :: [T.TypeDecl a] -> Set T.Type
@@ -295,8 +318,8 @@ getNames tdecl = case tdecl of
   T.Generic _ _ tds     -> getNamesUsed tds
   T.Function _ _ args r -> getNamesUsed (r : args)
   T.Struct _ fields     -> getNamesUsed (map snd fields)
-  T.Enum _ options      -> getNamesUsed (concatMap (map snd) $ map snd options)
-  T.ClassDecl _ _ _     -> error "should not have a class decl here"
+  T.Enum _ options      -> getNamesUsed (concatMap (map snd . snd) options)
+  T.ClassDecl{}         -> error "should not have a class decl here"
 
 -- TODO: Extend this to check the validity of the instance
 addInstance :: ClassEnv -> InstanceDefinition -> Result ClassEnv
