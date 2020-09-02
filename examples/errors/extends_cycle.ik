@@ -1,4 +1,3 @@
-// TODO: Nothing catches this
 type Foo class extends Bar:
     fn foo(Self) ()
 

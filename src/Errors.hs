@@ -32,6 +32,7 @@ data Error
   | Unreachable String -- function name
   | MissingReturn String -- function name
   | MalformedType String -- explanation
+  | CyclicClasses [String] -- names of classes
   | ContextReduction Predicate
   | Ambiguity [Predicate]
   | WithLocations [Region] Error -- wrap another error, adding a location

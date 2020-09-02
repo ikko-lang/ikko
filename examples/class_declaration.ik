@@ -7,7 +7,7 @@ type Use class:
 type Storage class:
     fn store<T>(Self, T) () where T: Sized
 
-type MyOrd class extends MyEq, MyOtherClass:
+type MyOrd class extends Use, Sized:
     fn cmp(Self, Self) Bool
 
 

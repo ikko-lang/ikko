@@ -46,6 +46,7 @@ import Types
   , tString
   , tUnit )
 import Util.Functions
+import Util.Graph (nodesInCycle)
 
 
 type DeclarationT     = D.Declaration     Annotation
@@ -125,7 +126,7 @@ checkClassGraph :: ClassEnv -> Result ()
 checkClassGraph ce = do
   let classMap = classes ce
   mapM_ (ensureSupersExist classMap) (Map.toList classMap)
-  return ()
+  ensureNoCycles $ classesToGraph classMap
 
 ensureSupersExist :: Map String Class -> (String, Class) -> Result ()
 ensureSupersExist classMap (name, cls) =
@@ -134,7 +135,17 @@ ensureSupersExist classMap (name, cls) =
      then return ()
      else Left $ UndefinedTypes ("superclass type not found for class " ++ name) missing
 
+classesToGraph :: Map String Class -> Map String [String]
+classesToGraph = Map.map superclasses
 
+ensureNoCycles :: Map String [String] -> Result ()
+ensureNoCycles classGraph =
+  let nodes = nodesInCycle classGraph
+  in if null nodes
+     then return ()
+     else Left $ CyclicClasses nodes
+
+-- TODO
 ensureNonOverlappingMethods :: ClassEnv -> Map String DeclarationT -> Result ()
 ensureNonOverlappingMethods _ _ = return ()
 

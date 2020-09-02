@@ -4,6 +4,8 @@ module Util.Graph (
   nodes,
   children,
   reachable,
+  pathExists,
+  nodesInCycle,
   ) where
 
 import Control.Monad (when)
@@ -19,6 +21,27 @@ type Graph a = Map a [a]
 nodes :: Graph a -> [a]
 nodes = Map.keys
 
+-- This is pretty inefficient
+nodesInCycle :: (Ord a) => Graph a -> [a]
+nodesInCycle graph =
+  let startingReachableSets = Map.map Set.fromList graph
+      asList = Map.toList graph
+      queue = [(n, c) | (n, cs) <- asList, c <- cs]
+      reachableSets = Map.toList $ findReachableSets graph startingReachableSets queue
+  in [node | (node, reachableSet) <- reachableSets, Set.member node reachableSet]
+
+findReachableSets :: (Ord a) => Graph a -> Map a (Set a) -> [(a, a)] -> Map a (Set a)
+findReachableSets _     reachableSets []               = reachableSets
+findReachableSets graph reachableSets ((from,to):rest) =
+  let getReachable node = fromMaybe Set.empty (Map.lookup node reachableSets)
+      currentReachable = getReachable from
+      nextReachable = getReachable to
+      newReachable = Set.union currentReachable nextReachable
+      reachableSets' = Map.insert from newReachable reachableSets
+      addedReachable = Set.difference nextReachable currentReachable
+      newQueueItems = [(from, to') | to' <- Set.toList addedReachable]
+  in findReachableSets graph reachableSets' (newQueueItems ++ rest)
+
 children :: (Ord a) => Graph a -> a -> [a]
 children graph node =
   fromMaybe [] (Map.lookup node graph)
@@ -32,6 +55,16 @@ reachable node graph = findReachable (children graph node) (Set.singleton node)
           then findReachable cs seen
           else findReachable (children graph c ++ cs) (Set.insert c seen)
 
+pathExists :: (Ord a) => Graph a -> a -> a -> Bool
+pathExists graph start end = pathExists' start Set.empty
+  where findPath nextNodes seen =
+          any (\n -> pathExists' n seen) nextNodes
+        pathExists' current seen =
+          let currentSeen  = Set.member current seen
+              nextNodes    = children graph current
+              endReachable = end `elem` nextNodes
+              hasPath      = findPath nextNodes (Set.insert current seen)
+          in endReachable || (not currentSeen && hasPath)
 
 -- This finds strongly-connected components of the graph,
 -- and returns them in a topological ordering.
