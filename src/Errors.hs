@@ -15,6 +15,7 @@ data Error
   | ContextTooWeak String
   | CompilerBug String
   | DuplicateBinding String -- binding name
+  | DuplicateClassBinding String [String] -- Class, binding name[s]
   | DuplicateClass String
   | DuplicateInstance String Type -- class, type
   | ParseError String

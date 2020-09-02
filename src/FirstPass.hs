@@ -104,8 +104,10 @@ firstPass file = do
   mapM_ checkDupVars binds
 
   let ce = startingClassEnv
-  ce' <- foldM addClass ce (gatherClasses file)
-  checkClasses ce' binds
+  let classDefs = gatherClasses file
+  ensureNonOverlappingMethods classDefs binds
+  ce' <- foldM addClass ce classDefs
+  checkClassGraph ce'
   ce'' <- foldM addInstance ce' (gatherInstances file)
 
   let environment = foldl addMethods startingEnv (gatherClasses file)
@@ -115,12 +117,6 @@ firstPass file = do
     , constructors=ctors
     , classEnv=ce''
     , rootEnv=environment }
-
-
-checkClasses :: ClassEnv -> Map String DeclarationT -> Result ()
-checkClasses ce binds = do
-  checkClassGraph ce
-  ensureNonOverlappingMethods ce binds
 
 checkClassGraph :: ClassEnv -> Result ()
 checkClassGraph ce = do
@@ -146,8 +142,20 @@ ensureNoCycles classGraph =
      else Left $ CyclicClasses nodes
 
 -- TODO
-ensureNonOverlappingMethods :: ClassEnv -> Map String DeclarationT -> Result ()
-ensureNonOverlappingMethods _ _ = return ()
+ensureNonOverlappingMethods :: [ClassDefinition] -> Map String DeclarationT -> Result ()
+ensureNonOverlappingMethods cdefs decls =
+  let initialNames = Set.fromList $ Map.keys decls
+      checkClasses _     [] =
+        return ()
+      checkClasses names (cdef:rest) = do
+        let methodNames = classMethodNames cdef
+        let overlappingNames = [name | name <- methodNames, Set.member name names]
+        when (not $ null overlappingNames) $
+          Left $ DuplicateClassBinding (cdName cdef) overlappingNames
+        let names' = Set.union names (Set.fromList methodNames)
+        checkClasses names' rest
+  in checkClasses initialNames cdefs
+
 
 -- TODO: this should also start with prelude and imported names
 startingEnv :: Environment
@@ -253,6 +261,10 @@ data ClassDefinition
     , cdSupers  :: [String]
     , cdMethods :: [ClassMethodT]
     }
+
+classMethodNames :: ClassDefinition -> [String]
+classMethodNames cdef =
+  [name | T.ClassMethod _ name _ <- cdMethods cdef]
 
 data InstanceDefinition
   = InstanceDefinition

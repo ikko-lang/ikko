@@ -1,4 +1,3 @@
-// TODO: Nothing catches this right now
 type SizedA class:
     fn size(Self) Int
 

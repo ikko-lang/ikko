@@ -22,6 +22,7 @@ nodes :: Graph a -> [a]
 nodes = Map.keys
 
 -- This is pretty inefficient
+--- this could have just used strongly connected compnents!
 nodesInCycle :: (Ord a) => Graph a -> [a]
 nodesInCycle graph =
   let startingReachableSets = Map.map Set.fromList graph
