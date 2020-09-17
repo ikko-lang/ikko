@@ -108,7 +108,9 @@ firstPass file = do
   ensureNonOverlappingMethods classDefs binds
   ce' <- foldM addClass ce classDefs
   checkClassGraph ce'
-  ce'' <- foldM addInstance ce' (gatherInstances file)
+
+  let classesMap = Map.fromList [(cdName c, c) | c <- classDefs]
+  ce'' <- foldM (addInstance classesMap) ce' (gatherInstances file)
 
   let environment = foldl addMethods startingEnv (gatherClasses file)
 
@@ -268,9 +270,10 @@ classMethodNames cdef =
 
 data InstanceDefinition
   = InstanceDefinition
-    { idType  :: TypeDefT
-    , idClass :: String
-    , idPreds :: [PredicateT]
+    { idType    :: TypeDefT
+    , idClass   :: String
+    , idPreds   :: [PredicateT]
+    , idMethods :: [DeclarationT]
     }
 
 addClass :: ClassEnv -> ClassDefinition -> Result ClassEnv
@@ -345,16 +348,29 @@ getNames tdecl = case tdecl of
   T.ClassDecl{}         -> error "should not have a class decl here"
 
 -- TODO: Extend this to check the validity of the instance
-addInstance :: ClassEnv -> InstanceDefinition -> Result ClassEnv
-addInstance ce idef = do
+addInstance :: Map String ClassDefinition -> ClassEnv -> InstanceDefinition -> Result ClassEnv
+addInstance classesMap ce idef = do
   let className = idClass idef
   cls <- case Map.lookup className (classes ce) of
     -- Improvement: Add location
     Nothing -> Left $ UndefinedClass className
     Just c  -> return c
+
+  cdef <- case Map.lookup className classesMap of
+    Nothing -> error "how was it in ce but not here?"
+    Just cd -> return cd
+  checkInstanceDef idef cdef
+
   cls' <- insertInstance idef cls
   let newClasses = Map.insert className cls' (classes ce)
   return ce { classes=newClasses}
+
+checkInstanceDef :: InstanceDefinition -> ClassDefinition -> Result ()
+checkInstanceDef idef cdef = do
+  let classMethods = cdMethods cdef
+  let instMethods = idMethods idef
+
+  return ()
 
 insertInstance :: InstanceDefinition -> Class -> Result Class
 insertInstance idef cls = do
@@ -378,8 +394,8 @@ gatherClasses declarations =
 
 gatherInstances :: FileT -> [InstanceDefinition]
 gatherInstances declarations =
-  [ InstanceDefinition { idType=typ, idClass=cls, idPreds=preds }
-  | D.Instance _ cls typ preds _ <- declarations ]
+  [ InstanceDefinition { idType=typ, idClass=cls, idPreds=preds, idMethods=methods }
+  | D.Instance _ cls typ preds methods <- declarations ]
 
 type DeclMap = Map String DeclarationT
 

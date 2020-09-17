@@ -1,7 +1,8 @@
+// TODO
 type Foo class:
     fn foo(Self) Int
 
-instance Count Bool:
+instance Foo Bool:
     fn foo(self):
         return 0
     // bar isn't in the class

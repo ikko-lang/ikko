@@ -110,8 +110,9 @@ Test-Suite test-first-pass
                   Region,
                   Types,
                   Util.DoOnce,
-                  Util.PrettyPrint,
-                  Util.Functions
+                  Util.Functions,
+                  Util.Graph,
+                  Util.PrettyPrint
 
 Test-Suite test-parser
     type:    exitcode-stdio-1.0

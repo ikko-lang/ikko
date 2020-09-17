@@ -1,7 +1,8 @@
+// TODO
 type Foo class:
     fn foo(Int) Self
 
-instance Count Bool:
+instance Foo Bool:
     // self isn't of type Self
     fn foo(self):
         return True
