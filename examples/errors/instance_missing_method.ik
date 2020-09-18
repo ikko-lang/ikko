@@ -1,4 +1,3 @@
-// TODO
 type Foo class:
     fn foo(Self) Int
     fn bar(Self) Bool

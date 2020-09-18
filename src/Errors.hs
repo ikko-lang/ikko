@@ -18,6 +18,10 @@ data Error
   | DuplicateClassBinding String [String] -- Class, binding name[s]
   | DuplicateClass String
   | DuplicateInstance String Type -- class, type
+  | ExtraInstanceMethod String [String] -- class, method names
+  | MissingInstanceMethod String [String] -- class, method names
+  | InstanceMethodWrongNumberArgs String String -- class, method name
+  | InstanceMethodBadSelfParam String String -- class, method name
   | ParseError String
   | CannotCast String -- a message
   | UndefinedVar String -- variable name

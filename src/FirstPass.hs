@@ -347,7 +347,6 @@ getNames tdecl = case tdecl of
   T.Enum _ options      -> getNamesUsed (concatMap (map snd . snd) options)
   T.ClassDecl{}         -> error "should not have a class decl here"
 
--- TODO: Extend this to check the validity of the instance
 addInstance :: Map String ClassDefinition -> ClassEnv -> InstanceDefinition -> Result ClassEnv
 addInstance classesMap ce idef = do
   let className = idClass idef
@@ -365,12 +364,61 @@ addInstance classesMap ce idef = do
   let newClasses = Map.insert className cls' (classes ce)
   return ce { classes=newClasses}
 
+-- Check that the instance declares all the methods in the class (an no extras)
+-- and that the arguments of each method match those from the method on the
+-- class.
 checkInstanceDef :: InstanceDefinition -> ClassDefinition -> Result ()
 checkInstanceDef idef cdef = do
+  let className = cdName cdef
+
   let classMethods = cdMethods cdef
   let instMethods = idMethods idef
 
+  let cMethodNames = Set.fromList [mname | T.ClassMethod _ mname _ <- classMethods]
+  let iMethodNames = Set.fromList $ map getDeclaredName instMethods
+
+  let missingMethods = Set.difference iMethodNames cMethodNames
+  let extraMethods = Set.difference cMethodNames iMethodNames
+
+  unless (Set.null missingMethods) $
+    Left $ MissingInstanceMethod className (Set.toList missingMethods)
+  unless (Set.null extraMethods) $
+    Left $ ExtraInstanceMethod className (Set.toList extraMethods)
+
+  mapM_ (checkInstanceMethod className classMethods) instMethods
+
   return ()
+
+checkInstanceMethod :: String -> [ClassMethodT] -> DeclarationT -> Result ()
+checkInstanceMethod className classMethods instMethod = do
+  let methodName = getDeclaredName instMethod
+
+  let (_, methodType) =
+        head [ mtype | T.ClassMethod _ mname mtype <- classMethods , mname == methodName ]
+
+  argTypes <- case methodType of
+    T.Function _ _ ts _ -> return ts
+    _                   -> error "invalid type on an instance method"
+
+  methodArgs <- case instMethod of
+    D.Function _ _ _ args _ -> return args
+    _                       -> error "invalid declaration for an instance method"
+
+  when (length argTypes /= length methodArgs) $
+    Left $ InstanceMethodWrongNumberArgs className methodName
+
+  mapM_ (checkInstMethArgName className methodName) (zip argTypes methodArgs)
+
+  return ()
+
+checkInstMethArgName :: String -> String -> (TypeDeclT, String) -> Result ()
+checkInstMethArgName className methodName (argT, argName) =
+  let isSelfType = case argT of
+        T.TypeName _ typ -> typ == "Self"
+        _                -> False
+      isSelfArg = argName == "self"
+  in when (isSelfType /= isSelfArg)
+     (Left $ InstanceMethodBadSelfParam className methodName)
 
 insertInstance :: InstanceDefinition -> Class -> Result Class
 insertInstance idef cls = do
