@@ -41,6 +41,7 @@ import Types
   , makeFuncType
   , makeSub
   , emptySubstitution
+  , unqualify
   , simpleVar
   , showSub )
 
@@ -717,7 +718,7 @@ assertTypes3 t ast inferFn = do
   assertRight result
   let (Right (typed, _, _)) = result
   let (Just resultType) = getType typed
-  assertMatches t resultType
+  assertMatches t (unqualify resultType)
 
 
 assertTypes t ast inferFn = do
@@ -725,7 +726,7 @@ assertTypes t ast inferFn = do
   assertRight result
   let (Right typed) = result
   let (Just resultType) = getType typed
-  assertMatches t resultType
+  assertMatches t (unqualify resultType)
 
 assertFailsP ast inferFn printer = do
   let result = inferEmpty $ inferFn startingEnv ast
