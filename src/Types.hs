@@ -10,7 +10,7 @@ import qualified Data.Set as Set
 
 import Debug.Trace
 
-import Util.PrettyPrint (Render, render)
+import Util.PrettyPrint (Render, render, Debug, debug, debugPairs)
 
 showTrace :: (Show a) => String -> a -> a
 showTrace s a = trace (s ++ ": " ++ show a) a
@@ -20,6 +20,9 @@ data Kind
   = Star
   | KFun Kind Kind
   deriving (Eq, Ord, Show)
+
+instance Debug Kind where
+  debug = render
 
 instance Render Kind where
   render Star = "*"
@@ -183,6 +186,10 @@ instance Render Scheme where
   render (Scheme _ qt) = -- ignore kinds
     render qt
 
+instance Debug Scheme where
+  debug (Scheme ks qt) =
+    "Scheme(kinds=[" ++ debug ks ++ "], " ++ debug qt ++ ")"
+
 instance Types Scheme where
   apply sub (Scheme ks t) = Scheme ks (apply sub t)
   freeTypeVars (Scheme _ t) = freeTypeVars t
@@ -200,6 +207,9 @@ isGeneric _      = False
 fromMaybe :: a -> Maybe a -> a
 fromMaybe _ (Just x) = x
 fromMaybe d Nothing  = d
+
+instance Debug Type where
+  debug = render
 
 instance Render Type where
   render t = case t of
@@ -250,8 +260,15 @@ data Qualified t
 
 type QualType = Qualified Type
 
+instance (Debug t) => Debug (Qualified t) where
+  debug (Qual [] t) = debug t
+  debug (Qual ps t) = "(" ++ debug ps ++ ") => " ++ debug t
+
 qualify :: Type -> QualType
 qualify = Qual []
+
+instance Debug Predicate where
+  debug = render
 
 instance Render Predicate where
   render (Pred c t) =
@@ -306,6 +323,10 @@ data ClassEnv
 
 newtype Environment = Environment (Map String Scheme)
   deriving (Show)
+
+instance Debug Environment where
+  debug (Environment env) =
+    "Environment(" ++ debugPairs (Map.toList env) ++ ")"
 
 envInsert :: String -> Scheme -> Environment -> Environment
 envInsert name sch (Environment e) =

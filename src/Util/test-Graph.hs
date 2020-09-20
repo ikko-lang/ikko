@@ -29,8 +29,8 @@ tests =
   , TestLabel "simple cycle" $ TestCase testSimpleCycle
   , TestLabel "longer cycle" $ TestCase testLongerCycle
   , TestLabel "test cycle 3" $ TestCase testCycle3
-  , TestLabel "path exists" $ testPathExists
-  , TestLabel "path exists2" $ testPathExists2
+  , TestLabel "path exists" testPathExists
+  , TestLabel "path exists2" testPathExists2
   , checkProperty "nodes in cycle can reach themselves" propReachableCycle
   , checkProperty "no empty groups" propNoEmptyGroups
   , checkProperty "same cardnality" propSameCardnality

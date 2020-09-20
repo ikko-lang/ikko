@@ -41,29 +41,10 @@ import Types
   , makeFuncType
   , makeSub
   , emptySubstitution
+  , simpleVar
   , showSub )
 
 import Inference
-  ( mgu
-  , runInfer
-  , runInferWithSub
-  , inferExpr
-  , inferDecl
-  , inferGroup
-  , unifies
-  , alphaSubstitues
-  , genSubstitutes
-  , makeBindGroup
-  , implicitBindings
-  , explicitBindings
-  , inferModule
-  , freshInst
-  , splitExplicit
-  , getExplicitType
-  , Environment
-  , InferResult(..)
-  , BindGroup(..)
-  , Preds )
 
 import Errors
   ( Error(..)
@@ -127,6 +108,7 @@ tests =
   , TestLabel "simple module" simpleModule
   , ts "explicit let binding" explicitLetBinding
   , ts "explicitly typed function" explicitFunctionBinding
+  , TestLabel "scheme generality" schemeGenerality
   ]
 
 ts name assertion = TestLabel name $ TestCase assertion
@@ -596,6 +578,59 @@ explicitFunctionBinding = do
   let type2 = Just ([], T.Function [] [] [intName] boolName)
   let funcWrongType = D.Function [] "f" type2 ["x"] returnStmt
   assertLeft $ inferModule $ makeModule  [("f", funcWrongType)]
+
+
+schemeGenerality :: Test
+schemeGenerality =
+  TestList
+  [ labeled "schemes with no generics" $ do
+      let s1 = asScheme tInt
+      let s2 = asScheme tInt
+      assertEqual "" True $ schemeIsAtLeastAsGeneral s1 s2
+
+  , labeled "schemes with equal generics" $ do
+      let s1 = Scheme [Star] (Qual [] (TGen 0 Star))
+      let s2 = Scheme [Star] (Qual [] (TGen 0 Star))
+      assertEqual "" True $ schemeIsAtLeastAsGeneral s1 s2
+
+  , labeled "more general scheme" $ do
+      let s1 = Scheme [Star] (Qual [] (TGen 0 Star))
+      let s2 = Scheme [] (Qual [] (simpleVar "v0"))
+      assertEqual "" True $ schemeIsAtLeastAsGeneral s1 s2
+
+  , labeled "less general scheme" $ do
+      let s1 = Scheme [] (Qual [] (simpleVar "v0"))
+      let s2 = Scheme [Star] (Qual [] (TGen 0 Star))
+      assertEqual "" False $ schemeIsAtLeastAsGeneral s1 s2
+
+  , labeled "different generic index order" $ do
+      let t1 = makeFuncType [TGen 0 Star, TGen 1 Star] (TGen 2 Star)
+      let t2 = makeFuncType [TGen 2 Star, TGen 0 Star] (TGen 1 Star)
+      let s1 = Scheme [Star, Star, Star] (Qual [] t1)
+      let s2 = Scheme [Star, Star, Star] (Qual [] t2)
+      assertEqual "" True $ schemeIsAtLeastAsGeneral s1 s2
+
+  , labeled "more generic vars" $ do
+      let t1 = makeFuncType [TGen 0 Star, TGen 1 Star] (TGen 2 Star)
+      let t2 = makeFuncType [TGen 0 Star, TGen 0 Star] (TGen 1 Star)
+      let s1 = Scheme [Star, Star, Star] (Qual [] t1)
+      let s2 = Scheme [Star, Star] (Qual [] t2)
+      assertEqual "" True $ schemeIsAtLeastAsGeneral s1 s2
+
+  , labeled "fewer generic vars" $ do
+      let t1 = makeFuncType [TGen 0 Star, TGen 0 Star] (TGen 1 Star)
+      let t2 = makeFuncType [TGen 0 Star, TGen 1 Star] (TGen 2 Star)
+      let s1 = Scheme [Star, Star] (Qual [] t1)
+      let s2 = Scheme [Star, Star, Star] (Qual [] t2)
+      assertEqual "" False $ schemeIsAtLeastAsGeneral s1 s2
+
+  , labeled "misaligned generic vars" $ do
+      let t1 = makeFuncType [TGen 0 Star, TGen 0 Star] (TGen 1 Star)
+      let t2 = makeFuncType [TGen 0 Star, TGen 1 Star] (TGen 1 Star)
+      let s1 = Scheme [Star, Star] (Qual [] t1)
+      let s2 = Scheme [Star, Star] (Qual [] t2)
+      assertEqual "" False $ schemeIsAtLeastAsGeneral s1 s2
+  ]
 
 -- TODO: Test that explicitly typed bindings break cycles
 

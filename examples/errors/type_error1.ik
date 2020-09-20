@@ -1,4 +1,3 @@
-// TODO: The typechecker is letting this one through!
 fn main():
     let a = 1
     let b = 0

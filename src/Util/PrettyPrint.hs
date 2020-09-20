@@ -4,8 +4,11 @@ module Util.PrettyPrint
   , decreaseIndent
   , writeLine
   , writeComment
+  , debug
+  , debugPairs
   , render
   , printLines
+  , Debug
   , PrettyPrint
   , PrettyPrinter
   , Render )
@@ -15,6 +18,17 @@ import Control.Monad.State.Lazy (gets, evalState, modify, State)
 
 import Util.Functions (commaSep)
 
+class Debug a where
+  debug :: a -> String
+
+
+instance (Debug a) => Debug [a] where
+  debug items =
+    commaSep $ filter (not . null) $ map debug items
+
+debugPairs :: (Debug a) => [(String, a)] -> String
+debugPairs pairs =
+  commaSep [k ++ "=" ++ debug v | (k, v) <- pairs]
 
 class Render a where
   render :: a -> String

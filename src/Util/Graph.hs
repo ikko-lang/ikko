@@ -59,7 +59,7 @@ reachable node graph = findReachable (children graph node) (Set.singleton node)
 pathExists :: (Ord a) => Graph a -> a -> a -> Bool
 pathExists graph start end = pathExists' start Set.empty
   where findPath nextNodes seen =
-          any (\n -> pathExists' n seen) nextNodes
+          any (`pathExists'` seen) nextNodes
         pathExists' current seen =
           let currentSeen  = Set.member current seen
               nextNodes    = children graph current

@@ -19,6 +19,7 @@ module Inference
   , splitExplicit
   , freshInst
   , getExplicitType
+  , schemeIsAtLeastAsGeneral
   , BindGroup
   , Environment
   , TypedDecls
@@ -36,9 +37,10 @@ import qualified Data.Set as Set
 import Data.Maybe (isJust)
 import Data.List ((\\), partition)
 
-import Control.Monad (when, foldM, zipWithM, msum)
+import Control.Monad (when, unless, foldM, zipWithM, msum)
 import Control.Monad.State (StateT, modify, get, gets, put, lift, evalStateT, mapStateT, runStateT)
 
+import Debug.Trace (trace)
 
 import Util.Functions
 import qualified AST.Annotation as Anno
@@ -91,6 +93,8 @@ import FirstPass
   ( Module(..), Constructor(..), bindings, valueType )
 import Util.Graph
   ( components )
+import Util.PrettyPrint
+  ( render, debug )
 
 
 type Preds = [Predicate]
@@ -628,18 +632,53 @@ inferStmt env stmt = case stmt of
        (expr', exprT, ps) <- inferExpr env expr
        sch <- withLocations [stmt] $ lookupName var env
        (varT, ps2) <- freshInst sch
-       -- TODO: not quite right, since this may result in too narrow of a type
-       -- getting assigned, but it's good enough for now
-       withLocations [stmt] $ unify exprT varT
+
+       -- Require that the expression's type match - not unify with - the
+       -- variable's type, because the assignment shouldn't be able to narrow
+       -- the type of the variable
+       exprTSubbed <- applyCurrentSub exprT
+       varTSubbed <- applyCurrentSub varT
+       sub <- case matches exprTSubbed varTSubbed of
+         Nothing ->
+           withLocations [stmt] $ inferErr $ WrongType exprTSubbed var
+         Just s  ->
+           return s
+       extendSub sub
+
+       exprT' <- applyCurrentSub exprTSubbed
+       env' <- applyCurrentSub env
+       let exprScheme = generalize env' (Qual [] exprT')
+
+       -- Ensure that the exprssion's type is polymorphic in the same ways that
+       -- the variable's type was.
+       unless (schemeIsAtLeastAsGeneral exprScheme sch) $
+         withLocations [stmt] $ inferErr $
+         AssignmentInsufficientlyGeneral varTSubbed exprT' var
+
        return (S.Assign a names expr', NeverReturns, ps ++ ps2)
      (var:fields) -> do
        (expr', exprT, ps1) <- inferExpr env expr
 
        sch <- withLocations [stmt] $ lookupName var env
-       -- Is it right for this to be working on an instantiation of sch?
        (varT, ps2) <- freshInst sch
        fieldT <- withLocations [stmt] $ getStructField varT fields
-       withLocations [stmt] $ unify fieldT exprT
+
+       exprTSubbed <- applyCurrentSub exprT
+       fieldTSubbed <- applyCurrentSub fieldT
+       sub <- case matches exprTSubbed fieldTSubbed of
+         Nothing ->
+           withLocations [stmt] $ inferErr $ WrongType exprTSubbed var
+         Just s ->
+           return s
+       extendSub sub
+
+       exprT' <- applyCurrentSub exprTSubbed
+       env' <- applyCurrentSub env
+       let exprScheme = generalize env' (Qual [] exprT')
+
+       unless (schemeIsAtLeastAsGeneral exprScheme sch) $
+         withLocations [stmt] $ inferErr $
+         AssignmentInsufficientlyGeneral fieldTSubbed exprT' var
 
        return (S.Assign a names expr', NeverReturns, ps1 ++ ps2)
 
@@ -933,6 +972,32 @@ inferValue env val = case val of
 
     return (addType t $ E.StructVal a tname orderedFields, t, concat (ps : pss))
 
+-- Check if the scheme `moreGeneral` is at least as general as `lessGeneral`,
+-- meaning that `moreGeneral` has generic variables in all the places that
+-- `lessGeneral` does, and those variables are distinct if they are distinct in
+-- `lessGeneral`.
+schemeIsAtLeastAsGeneral :: Scheme -> Scheme -> Bool
+schemeIsAtLeastAsGeneral moreGeneral lessGeneral =
+  let (Scheme _ (Qual _ mgt)) = moreGeneral
+      (Scheme _ (Qual _ lgt)) = lessGeneral
+  in isJust $ matchGenerality mgt lgt
+
+matchGenerality :: Type -> Type -> Maybe Substitution
+matchGenerality mgt lgt = case lgt of
+  (TGen _ _) -> case mgt of
+    (TGen _ _) ->
+      return $ Map.singleton mgt lgt
+    _          ->
+      Nothing
+  (TAp  la lb) -> case mgt of
+    (TAp ma mb) -> do
+      subA <- matchGenerality ma la
+      subB <- matchGenerality mb lb
+      merge subA subB
+    _           ->
+      Nothing
+  _            ->
+    return Map.empty
 
 orderAs :: (Ord a) => [a] -> [(a, b)] -> [(a, b)]
 orderAs keys pairs = map getPair keys
@@ -1160,8 +1225,8 @@ matches t1 t2 = case (t1, t2) of
   (_, TGen _ _) ->
     error $ "A generic variable should have been instantiated in matches: " ++ show (t1, t2)
 
-  (TFunc n1 _, TFunc n2 _) ->
-    if n1 == n2
+  (TFunc n1 k1, TFunc n2 k2) ->
+    if n1 == n2 && k1 == k2
     then return emptySubstitution
     else Nothing
 

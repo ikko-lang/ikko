@@ -24,8 +24,7 @@ fn do_stuff():
    let int  = 5 + (2 * 10) / 3 % 4
 
    //let fl Float = 99.0e-3 ** 2
-   let fl  = 1.23
-   // TODO: power only works for ints right now ** 2.73
+   let fl  = 1.23 ** 2.73
 
    // Comparison operators
    let x  = fl < Float(int)

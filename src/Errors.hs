@@ -11,6 +11,7 @@ data Error
   | WrongType Type String
   | InfiniteType TyVar -- a type variable
   | KindMismatch TyVar Kind Kind
+  | AssignmentInsufficientlyGeneral Type Type String -- var type, expr type, var name
   | BindingTooGeneral String -- name of binding
   | ContextTooWeak String
   | CompilerBug String

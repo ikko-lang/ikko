@@ -143,7 +143,6 @@ ensureNoCycles classGraph =
      then return ()
      else Left $ CyclicClasses nodes
 
--- TODO
 ensureNonOverlappingMethods :: [ClassDefinition] -> Map String DeclarationT -> Result ()
 ensureNonOverlappingMethods cdefs decls =
   let initialNames = Set.fromList $ Map.keys decls
@@ -152,7 +151,7 @@ ensureNonOverlappingMethods cdefs decls =
       checkClasses names (cdef:rest) = do
         let methodNames = classMethodNames cdef
         let overlappingNames = [name | name <- methodNames, Set.member name names]
-        when (not $ null overlappingNames) $
+        unless (null overlappingNames) $
           Left $ DuplicateClassBinding (cdName cdef) overlappingNames
         let names' = Set.union names (Set.fromList methodNames)
         checkClasses names' rest
@@ -387,8 +386,6 @@ checkInstanceDef idef cdef = do
 
   mapM_ (checkInstanceMethod className classMethods) instMethods
 
-  return ()
-
 checkInstanceMethod :: String -> [ClassMethodT] -> DeclarationT -> Result ()
 checkInstanceMethod className classMethods instMethod = do
   let methodName = getDeclaredName instMethod
@@ -408,8 +405,6 @@ checkInstanceMethod className classMethods instMethod = do
     Left $ InstanceMethodWrongNumberArgs className methodName
 
   mapM_ (checkInstMethArgName className methodName) (zip argTypes methodArgs)
-
-  return ()
 
 checkInstMethArgName :: String -> String -> (TypeDeclT, String) -> Result ()
 checkInstMethArgName className methodName (argT, argName) =
