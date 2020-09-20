@@ -18,7 +18,7 @@ import AST.Annotation (Annotation, addType)
 import qualified AST.Declaration as D
 import qualified AST.Expression as E
 import qualified AST.Statement as S
-import Types (tUnit, makeFuncType)
+import Types (tUnit, makeFuncType, qualify)
 
 
 type ExpressionT      = E.Expression      Annotation
@@ -31,7 +31,7 @@ type StatementT       = S.Statement       Annotation
 interpret :: InferResult -> IO ()
 interpret body =
   let mainT = makeFuncType [] tUnit
-      callMain = E.Call [] (addType mainT $ E.Var [] "main") []
+      callMain = E.Call [] (addType (qualify mainT) $ E.Var [] "main") []
   in do
     scope <- startingState body
     _ <- interpretExpr scope callMain

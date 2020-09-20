@@ -40,7 +40,6 @@ import Data.List ((\\), partition)
 import Control.Monad (when, unless, foldM, zipWithM, msum)
 import Control.Monad.State (StateT, modify, get, gets, put, lift, evalStateT, mapStateT, runStateT)
 
-import Debug.Trace (trace)
 
 import Util.Functions
 import qualified AST.Annotation as Anno
@@ -85,7 +84,9 @@ import Types
   , asScheme
   , composeSubs
   , emptySubstitution
-  , freeTypeVars )
+  , freeTypeVars
+  , unqualify
+  , qualify )
 import Errors
   ( Error(..)
   , Result )
@@ -94,7 +95,7 @@ import FirstPass
 import Util.Graph
   ( components )
 import Util.PrettyPrint
-  ( render, debug )
+  ( debug )
 
 
 type Preds = [Predicate]
@@ -416,7 +417,7 @@ tiExpl name decl env = do
   (t, qs) <- freshInst sch
 
   (d, ps) <- inferDecl env decl
-  let dt = getType d
+  let dt = unqualify $ getType d
   withLocations [decl] $ unify t dt
 
   sub <- getSub
@@ -515,7 +516,8 @@ inferDecls :: Environment -> [(String, DeclarationT)] -> [Type] -> InferM TypedD
 inferDecls env decls ts = mapM infer (zip decls ts)
   where infer ((name, decl), t) = do
           (d, ps) <- inferDecl env decl
-          withLocations [d] $ unify t (getType d)
+          let (Qual _ t') = getType d
+          withLocations [d] $ unify t t'
           return (name, d, ps)
 
 generalize :: Environment -> QualType -> Scheme
@@ -566,7 +568,7 @@ inferDecl :: Environment -> DeclarationT -> InferM (DeclarationT, Preds)
 inferDecl env decl = case decl of
   D.Let a name mtype expr -> do
     (expr', t, ps) <- inferExpr env expr
-    return (addType t $ D.Let a name mtype expr', ps)
+    return (addType (Qual ps t) $ D.Let a name mtype expr', ps)
 
   D.Function a name mtype args stmt -> do
     argTs <- mapM (const newStarVar) args
@@ -591,7 +593,8 @@ inferDecl env decl = case decl of
     let argTypes = map (apply sub) argTs
     let returnT = apply sub retT
     let t = makeFuncType argTypes returnT
-    return (addType t $ D.Function a name mtype args stmt', ps1 ++ ps2)
+    let preds = ps1 ++ ps2
+    return (addType (Qual preds t) $ D.Function a name mtype args stmt', preds)
 
   D.TypeDef{} ->
     inferErr $ CompilerBug "TypeDefs are not bindings"
@@ -606,7 +609,7 @@ inferStmt env stmt = case stmt of
     return (S.Return a Nothing, AlwaysReturns [tUnit], [])
   S.Return a (Just expr) -> do
     (expr', _, ps) <- inferExpr env expr
-    return (S.Return a (Just expr'), AlwaysReturns [getType expr'], ps)
+    return (S.Return a (Just expr'), AlwaysReturns [unqualify $ getType expr'], ps)
 
   S.Let a name mtype expr -> do
     -- TODO: recursive binding?
@@ -619,7 +622,7 @@ inferStmt env stmt = case stmt of
       Just tdecl -> do
         -- TODO: allow generics here, too?
         (t, ps) <- typeFromDecl Map.empty tdecl
-        withLocations [stmt] $ unify (getType expr') t
+        withLocations [stmt] $ unify (unqualify $ getType expr') t
         return ps
     return (S.Let a name mtype expr', NeverReturns, ps1 ++ ps2)
 
@@ -692,7 +695,7 @@ inferStmt env stmt = case stmt of
 
   S.If a test blk els -> do
     (testExpr, _, ps1) <- inferExpr env test
-    withLocations [testExpr] $ unify (getType testExpr) tBool
+    withLocations [testExpr] $ unify (unqualify $ getType testExpr) tBool
     (blk', blkReturns, ps2) <- inferBlock env blk
     (els', elsReturns, ps3) <- case els of
       Nothing ->
@@ -705,7 +708,7 @@ inferStmt env stmt = case stmt of
 
   S.While a test blk -> do
     (testExpr, _, ps1) <- inferExpr env test
-    withLocations [testExpr] $ unify (getType testExpr) tBool
+    withLocations [testExpr] $ unify (unqualify $ getType testExpr) tBool
     (blk', blkReturns, ps2) <- inferBlock env blk
     let whileReturns = demoteReturns blkReturns
     return (S.While a testExpr blk', whileReturns, ps1 ++ ps2)
@@ -719,7 +722,7 @@ inferStmt env stmt = case stmt of
     return (result, foldl1 combineReturns returns, concat (ps : pss))
 
   S.Pass a -> do
-    let result = addType tUnit $ S.Pass a
+    let result = addType (qualify tUnit) $ S.Pass a
     return (result, NeverReturns, [])
 
 
@@ -736,12 +739,12 @@ inferMatchExpr :: Environment -> Type -> MatchExpressionT
                -> InferM (MatchExpressionT, [(String, Scheme)], Preds)
 inferMatchExpr env targetType matchExpr = case matchExpr of
   S.MatchAnything a ->
-    return (addType targetType $ S.MatchAnything a, [], [])
+    return (addType (qualify targetType) $ S.MatchAnything a, [], [])
 
   S.MatchVariable a name -> do
     let sch = generalize env (Qual [] targetType)
     let bindings' = [(name, sch)]
-    return (addType targetType $ S.MatchVariable a name, bindings', [])
+    return (addType (qualify targetType) $ S.MatchVariable a name, bindings', [])
 
   S.MatchStructure a enumName fields -> do
     ctor <- withLocations [matchExpr] $ getConstructor enumName
@@ -765,8 +768,9 @@ inferMatchExpr env targetType matchExpr = case matchExpr of
     let ps = concat pss
 
     sub2 <- getSub
-    let structType = apply sub2 structT
-    return (addType structType $ S.MatchStructure a enumName typedFields, binds, ps ++ ps2)
+    let preds = ps ++ ps2
+    let structType = Qual preds $ apply sub2 structT
+    return (addType structType $ S.MatchStructure a enumName typedFields, binds, preds)
 
 
 destructFunctionType :: Type -> InferM ([Type], Type)
@@ -795,9 +799,11 @@ inferBlock env [stmt] = do
   return ([stmt'], retT, ps)
 inferBlock env (s:ss) = do
   (s', ret1, ps1) <- inferStmt env s
+  sub <- getSub
   let env' = case s' of
         S.Let _ name _ expr ->
-          let sch = generalize env (Qual [] $ getType expr)
+          let exprT = apply sub  $ getType expr
+              sch = generalize env exprT
           in envInsert name sch env
         _                   -> env
   (ss', ret2, ps2) <- inferBlock env' ss
@@ -876,11 +882,11 @@ inferExpr :: Environment -> ExpressionT -> InferM (ExpressionT, Type, Preds)
 inferExpr env expr = case expr of
   E.Paren a e -> do
     (e', t, ps) <- inferExpr env e
-    return (addType t $ E.Paren a e', t, ps)
+    return (addType (Qual ps t) $ E.Paren a e', t, ps)
 
   E.Val a val -> do
     (val', t, ps) <- inferValue env val
-    return (addType t $ E.Val a val', t, ps)
+    return (addType (Qual ps t) $ E.Val a val', t, ps)
 
   E.Unary a op exp -> do
     resultT <- newStarVar
@@ -889,7 +895,7 @@ inferExpr env expr = case expr of
     withLocations [expr] $ unify fnT (makeFuncType [expT] resultT)
     sub <- getSub
     let t = apply sub resultT
-    return (addType t $ E.Unary a op exp', t, ps)
+    return (addType (Qual ps t) $ E.Unary a op exp', t, ps)
 
   E.Binary a op l r -> do
     resultT <- newStarVar
@@ -899,7 +905,8 @@ inferExpr env expr = case expr of
     withLocations [expr] $ unify fnT (makeFuncType [lt, rt] resultT)
     sub <- getSub
     let t = apply sub resultT
-    return (addType t $ E.Binary a op l' r', t, ps1 ++ ps2 ++ ps3)
+    let preds = ps1 ++ ps2 ++ ps3
+    return (addType (Qual preds t) $ E.Binary a op l' r', t, preds)
 
   E.Call a fexp args -> do
     resultT <- newStarVar
@@ -909,39 +916,41 @@ inferExpr env expr = case expr of
     withLocations [expr] $ unify ft (makeFuncType argTs resultT)
     sub <- getSub
     let t = apply sub resultT
-    return (addType t $ E.Call a fexp' args', t, concat $ ps : pss)
+    let preds = concat $ ps : pss
+    return (addType (Qual preds t) $ E.Call a fexp' args', t, preds)
 
   E.Cast a t exp -> do
     (exp', expT, ps) <- inferExpr env exp
-    sch <- withLocations [expr] $ attemptCast t expT
-    return (addType sch $ E.Cast a t exp', sch, ps)
+    t' <- withLocations [expr] $ attemptCast t expT
+    return (addType (Qual ps t') $ E.Cast a t exp', t', ps)
 
   E.Var a name -> do
     sch <- withLocations [expr] $ lookupName name env
     (t, ps) <- freshInst sch
-    return (addType t $ E.Var a name, t, ps)
+    return (addType (Qual ps t) $ E.Var a name, t, ps)
 
   E.Access a exp field -> do
     (exp', et, ps) <- inferExpr env exp
     sub <- getSub
     let etype = apply sub et
     t <- withLocations [expr] $ getStructFieldType etype field
-    return (addType t $ E.Access a exp' field, t, ps)
+    return (addType (Qual ps t) $ E.Access a exp' field, t, ps)
 
 inferValue :: Environment -> ValueT -> InferM (ValueT, Type,  Preds)
 inferValue env val = case val of
   E.StrVal a str ->
-    return (addType tString $ E.StrVal a str, tString, [])
+    return (addType (qualify tString) $ E.StrVal a str, tString, [])
 
   E.BoolVal a b ->
-    return (addType tBool $ E.BoolVal a b, tBool, [])
+    return (addType (qualify tBool) $ E.BoolVal a b, tBool, [])
 
   E.IntVal a i -> do
     t <- newTypeVar Star
-    return (addType tInt $ E.IntVal a i, t, [Pred "Num" t])
+    let preds = [Pred "Num" t]
+    return (addType (Qual preds tInt) $ E.IntVal a i, t, preds)
 
   E.FloatVal a f ->
-    return (addType tFloat $ E.FloatVal a f, tFloat, [])
+    return (addType (qualify tFloat) $ E.FloatVal a f, tFloat, [])
 
   E.StructVal a tname fields  -> do
     resultT <- newStarVar
@@ -970,7 +979,7 @@ inferValue env val = case val of
 
     let pss = map trd3 typedFields
 
-    return (addType t $ E.StructVal a tname orderedFields, t, concat (ps : pss))
+    return (addType (qualify t) $ E.StructVal a tname orderedFields, t, concat (ps : pss))
 
 -- Check if the scheme `moreGeneral` is at least as general as `lessGeneral`,
 -- meaning that `moreGeneral` has generic variables in all the places that
@@ -1255,7 +1264,7 @@ merge s1 s2 =
      then return $ Map.union s1 s2
      else Nothing
 
-getType :: (Annotated a) => a Annotation -> Type
+getType :: (Annotated a) => a Annotation -> QualType
 getType node =
   fromMaybe (error "must be typed") (Anno.getType node)
 

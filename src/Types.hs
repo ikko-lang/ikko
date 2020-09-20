@@ -267,6 +267,9 @@ instance (Debug t) => Debug (Qualified t) where
 qualify :: Type -> QualType
 qualify = Qual []
 
+unqualify :: QualType -> Type
+unqualify (Qual _ t) = t
+
 instance Debug Predicate where
   debug = render
 

@@ -4,7 +4,7 @@ cd $(dirname "$BASH_SOURCE[0]")/../
 
 BIN=".stack-work/install/x86_64-linux/157bf6244c9792b25fd59b58e6e4e87ef65813a154039f39d8a959445a467a47/8.6.5/bin/ikko"
 
-for F in examples/*.ik; do
+for F in examples/*.ik examples/projecteuler/*.ik examples/generated/*.ik; do
     echo -n "."
     if ! $BIN "$F" > /dev/null; then
         echo -e "\n$F failed"

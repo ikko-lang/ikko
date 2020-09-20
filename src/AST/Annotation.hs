@@ -3,7 +3,7 @@ module AST.Annotation where
 import Control.Monad (unless)
 
 import Region (Region)
-import Types (Type)
+import Types (QualType)
 import Util.DoOnce (evalDoOnce, isFirst)
 import Util.PrettyPrint (Render, PrettyPrinter, render, writeComment)
 
@@ -34,14 +34,14 @@ emptyAnnotation = []
 
 data Metadata
   = Location Region
-  | Typed Type
+  | Typed QualType
   deriving (Eq, Show)
 
 addAnnotation :: (Annotated a) => Metadata -> a Annotation -> a Annotation
 addAnnotation metadata a =
   setAnnotation (metadata : getAnnotation a) a
 
-addType :: (Annotated a) => Type -> a Annotation -> a Annotation
+addType :: (Annotated a) => QualType -> a Annotation -> a Annotation
 addType t =
   addAnnotation (Typed t)
 
@@ -50,7 +50,7 @@ addLocation r =
   addAnnotation (Location r)
 
 
-getType :: (Annotated a) => a Annotation -> Maybe Type
+getType :: (Annotated a) => a Annotation -> Maybe QualType
 getType node =
   listToMaybe [t | Typed t <- getAnnotation node]
 
@@ -71,12 +71,12 @@ listToMaybe :: [a] -> Maybe a
 listToMaybe []    = Nothing
 listToMaybe (a:_) = Just a
 
-mapType :: (Annotated f) => (Type -> Type) -> f Annotation -> f Annotation
+mapType :: (Annotated f) => (QualType -> QualType) -> f Annotation -> f Annotation
 mapType f ast =
   let annotations = getAnnotation ast
       updated = map (modifyType f) annotations
   in setAnnotation updated ast
 
-modifyType :: (Type -> Type) -> Metadata -> Metadata
+modifyType :: (QualType -> QualType) -> Metadata -> Metadata
 modifyType f (Typed t) = Typed (f t)
 modifyType _ other     = other
