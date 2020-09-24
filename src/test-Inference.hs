@@ -651,7 +651,8 @@ makeModule bindings =
      { bindings=bindMap
      , constructors=Map.empty
      , classEnv=startingClassEnv
-     , rootEnv=startingEnv }
+     , rootEnv=startingEnv
+     , instanceDecls=[] }
 
 
 findGroups :: [(String, DeclarationT)] -> [[String]]

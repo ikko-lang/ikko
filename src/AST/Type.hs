@@ -2,7 +2,7 @@
 
 module AST.Type where
 
-import AST.Annotation (Annotated)
+import AST.Annotation (Annotated, Annotation, emptyAnnotation)
 
 type Type = String
 
@@ -41,6 +41,10 @@ data TypeDef a
 
 instance Annotated TypeDef where
   --  use all default methods
+
+typeDefToDecl :: TypeDef Annotation -> TypeDecl Annotation
+typeDefToDecl def = Generic (defAnn def) (defName def) generics
+  where generics = [TypeName emptyAnnotation t | t <- defGenerics def]
 
 
 data ClassMethod a

@@ -64,21 +64,30 @@ type PredicateT       = T.Predicate       Annotation
 
 data Module =
   Module
-  { bindings :: Map String DeclarationT
-  , constructors :: Map String Constructor
-  , classEnv :: ClassEnv
+  { bindings      :: Map String DeclarationT
+  , constructors  :: Map String Constructor
+  , classEnv      :: ClassEnv
   -- rootEnv contains names that are assumed to be defined when type inference runs
-  , rootEnv :: Environment
+  , rootEnv       :: Environment
+  , instanceDecls :: [InstanceMethod]
   }
   deriving (Show)
 
 data Constructor =
   Constructor
   { ctorFields :: [(String, Scheme)]
-  , ctorType :: Scheme -- type of the constructor
+  , ctorType   :: Scheme -- type of the constructor
   }
   deriving (Eq, Show)
 
+data InstanceMethod =
+  InstanceMethod
+  { imName        :: String
+  , imBody        :: DeclarationT
+  , imMethodType  :: FuncTypeT
+  , imInstanceDef :: InstanceDefinition
+  }
+  deriving (Eq, Show)
 
 valueType :: Constructor -> Scheme
 valueType ctor =
@@ -110,15 +119,20 @@ firstPass file = do
   checkClassGraph ce'
 
   let classesMap = Map.fromList [(cdName c, c) | c <- classDefs]
-  ce'' <- foldM (addInstance classesMap) ce' (gatherInstances file)
+  let instanceDefs = gatherInstances file
+  ce'' <- foldM (addInstance classesMap) ce' instanceDefs
 
-  let environment = foldl addMethods startingEnv (gatherClasses file)
+  let environment = foldl addMethods startingEnv classDefs
+
+  typedInstancess <- mapM (getTypedInstance classesMap) instanceDefs
+  let typedInstances = concat typedInstancess
 
   return Module
     { bindings=binds
     , constructors=ctors
     , classEnv=ce''
-    , rootEnv=environment }
+    , rootEnv=environment
+    , instanceDecls=typedInstances }
 
 checkClassGraph :: ClassEnv -> Result ()
 checkClassGraph ce = do
@@ -201,40 +215,6 @@ convertPredicate pt =
 makeInst :: String -> Type -> Inst
 makeInst c t = Qual [] (Pred c t)
 
-{-
-TODO:
-
-Things to check for class declarations:
-
-* Unique name (among classes and other types) - global
-* All methods involve Self type at least once - done
-* Methods don't use class's type besides as Self - done
-* Superclasses exist - global
-* Superclass hierarchy is acyclic - global
-* Method names that overlap with other classes or other bindings - global
-* Generics don't use Self as the variable
-
-Things to check for instance declarations:
-
-* Class exists (and type is a class)
-* Unique type for instance - global
-* Valid type for instance (not an alias)
-* (later) Either the class or the type is declared in this module
-* The only declarations inside the class are functions
-* The methods match the class's methods (name, argument count, position of self)
-* The methods don't have a declared type
-
-
-Processing to do:
-
-* Add classes to the class env
-* Add instances to the class env
-* Add methods from classes to the environment
-* Convert instance methods to "hidden," explicitly typed bindings?
-
-
--}
-
 startingClassEnv :: ClassEnv
 startingClassEnv =
   let builtinClasses = Map.fromList
@@ -274,6 +254,7 @@ data InstanceDefinition
     , idPreds   :: [PredicateT]
     , idMethods :: [DeclarationT]
     }
+    deriving (Eq, Show)
 
 addClass :: ClassEnv -> ClassDefinition -> Result ClassEnv
 addClass ce cdef = do
@@ -345,6 +326,28 @@ getNames tdecl = case tdecl of
   T.Struct _ fields     -> getNamesUsed (map snd fields)
   T.Enum _ options      -> getNamesUsed (concatMap (map snd . snd) options)
   T.ClassDecl{}         -> error "should not have a class decl here"
+
+getTypedInstance :: Map String ClassDefinition -> InstanceDefinition -> Result [InstanceMethod]
+getTypedInstance classesMap idef = do
+  let className = idClass idef
+  cdef <- case Map.lookup className classesMap of
+    Nothing -> Left $ UndefinedClass className
+    Just cd -> return cd
+  mapM (getTypedInstanceMethod cdef idef) $ idMethods idef
+
+getTypedInstanceMethod :: ClassDefinition -> InstanceDefinition -> DeclarationT -> Result InstanceMethod
+getTypedInstanceMethod cdef idef decl = do
+  let name = getDeclaredName decl
+  funcType <- case findMethod cdef name of
+    Nothing                    -> Left $ ExtraInstanceMethod (idClass idef) [name]
+    Just (T.ClassMethod _ _ t) -> return t
+  return InstanceMethod { imName=name, imBody=decl, imMethodType=funcType, imInstanceDef=idef }
+
+findMethod :: ClassDefinition -> String -> Maybe ClassMethodT
+findMethod cdef name = findMethod' (cdMethods cdef)
+  where findMethod' []                           = Nothing
+        findMethod' (x@(T.ClassMethod _ n _):xs) =
+          if n == name then return x else findMethod' xs
 
 addInstance :: Map String ClassDefinition -> ClassEnv -> InstanceDefinition -> Result ClassEnv
 addInstance classesMap ce idef = do

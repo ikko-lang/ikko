@@ -29,19 +29,22 @@ module Inference
 
 
 import Prelude hiding (exp)
+import Debug.Trace (trace, traceM)
 
 import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.Set (Set)
 import qualified Data.Set as Set
-import Data.Maybe (isJust)
+import Data.Maybe (isJust, mapMaybe)
 import Data.List ((\\), partition)
 
 import Control.Monad (when, unless, foldM, zipWithM, msum)
 import Control.Monad.State (StateT, modify, get, gets, put, lift, evalStateT, mapStateT, runStateT)
 
 
+import Region (Region)
 import Util.Functions
+import Util.PrettyPrint (PrettyPrint, prettyPrint, debug)
 import qualified AST.Annotation as Anno
 import AST.Annotation (Annotation, Annotated, getLocation, addType, mapType)
 import AST.Expression (UnaryOp(..), BinOp(..))
@@ -84,18 +87,26 @@ import Types
   , asScheme
   , composeSubs
   , emptySubstitution
+  , showSub
+  , makeSub
   , freeTypeVars
   , unqualify
+  , simpleVar
   , qualify )
 import Errors
   ( Error(..)
   , Result )
 import FirstPass
-  ( Module(..), Constructor(..), bindings, valueType )
+  ( Module(..)
+  , Constructor(..)
+  , InstanceMethod(..)
+  , InstanceDefinition(..)
+  , bindings
+  , valueType )
 import Util.Graph
   ( components )
-import Util.PrettyPrint
-  ( debug )
+--import Util.PrettyPrint
+--  ( debug )
 
 
 type Preds = [Predicate]
@@ -117,7 +128,9 @@ data BindGroup
     -- can refer to bindings in the head.
     { implicitBindings :: [[(String, DeclarationT)]]
     -- all bindings with an explicit type go in one group
-    , explicitBindings :: [(String, DeclarationT)] }
+    , explicitBindings :: [(String, DeclarationT)]
+    , instanceMethods :: [InstanceMethod]
+    }
 
 -- TODO: Remove TypedDecls after changing the type annotation to be a Scheme
 type TypedDecls = [(String, DeclarationT, Preds)]
@@ -169,7 +182,8 @@ makeBindGroup m =
       getBinding name = (name, mustLookup name declarations)
       impls = map (map getBinding) topoOrder
       expls = Map.toList de
-  in BindGroup { implicitBindings=impls, explicitBindings=expls }
+      instMethods = instanceDecls m
+  in BindGroup { implicitBindings=impls, explicitBindings=expls, instanceMethods=instMethods }
 
 type DeclMap = Map String DeclarationT
 
@@ -335,21 +349,18 @@ runInferWithSub ctors ce f = do
 inferErr :: Error -> InferM a
 inferErr err = lift $ Left err
 
-inferErrFor :: (Annotated a) => [a Annotation] -> Error -> InferM b
+inferErrFor :: (PrettyPrint (a Annotation), Annotated a) => [a Annotation] -> Error -> InferM b
 inferErrFor nodes err = withLocations nodes $ inferErr err
 
-withLocations :: (Annotated a) => [a Annotation] -> InferM b -> InferM b
+withLocations :: (PrettyPrint (a Annotation), Annotated a) => [a Annotation] -> InferM b -> InferM b
 withLocations nodes inf =
-  let regions = mapMaybe_ getLocation nodes
+  let regions = mapMaybe checkedGetLocation nodes
   in mapStateT (mapLeft (WithLocations regions)) inf
 
-
-mapMaybe_ :: (a -> Maybe b) -> [a] -> [b]
-mapMaybe_ f = map (mustJust . f)
-
-mustJust :: Maybe a -> a
-mustJust (Just a) = a
-mustJust Nothing = error "Must be Just"
+checkedGetLocation :: (PrettyPrint (a Annotation), Annotated a) => a Annotation -> Maybe Region
+checkedGetLocation node = case getLocation node of
+  Nothing -> trace ("\n [compiler issue] no location for node " ++ prettyPrint node) Nothing
+  Just r  -> Just r
 
 newTypeVar :: Kind -> InferM Type
 newTypeVar kind = do
@@ -391,17 +402,88 @@ inferBindGroup bg env = do
   let env' = envUnion env2 env1
   decls2 <- tiExpls expls env'
   let (bindings2, ps2) = toBindings decls2
+
+  let instMethods = instanceMethods bg
+  mapM_ (tiInstanceMethod env) instMethods
+
   -- ps1 and ps2 are _deferred_ predicates
   return (Bindings $ bindings1 ++ bindings2, env', ps1 ++ ps2)
+
 
 toBindings :: TypedDecls -> ([Binding], Preds)
 toBindings = foldl extractPreds ([], [])
   where extractPreds (binds, preds) (name, decl, ps) =
           ((name, decl) : binds, ps ++ preds)
 
+tiInstanceMethod :: Environment -> InstanceMethod -> InferM ()
+tiInstanceMethod env instMethod = do
+  let name = imName instMethod
+  -- Get the declared type
+  sch <- createInstMethodScheme instMethod
+  (t, preds) <- freshInst sch
+
+  -- Typecheck it
+  let decl = imBody instMethod
+  (resultDecl, resultPreds) <- inferDecl env decl
+
+  -- Unify that type with the declared type (which may narrow it)
+  let resultType = unqualify $ getType resultDecl
+  withLocations [decl] $ unify t resultType
+
+  -- Update the declared type with the current substitution
+  preds' <- applyCurrentSub preds
+  t' <- applyCurrentSub t
+  env' <- applyCurrentSub env
+
+  -- Figure out the variables that are _now_ free in that type
+  let varsFreeInEnv = freeTypeVars env'
+  let varsInT = freeTypeVars t'
+  let varsFreeInT = Set.difference varsInT varsFreeInEnv
+
+  -- Create an updated version of sch'
+  let sch' = quantify varsFreeInT (Qual preds' t')
+
+  -- Find predicates in the result type that aren't entailed by the predicates
+  -- in the declared type
+  ce <- getClassEnv
+  resultPreds' <- applyCurrentSub resultPreds
+  let newPredicates = filter (not . entail ce preds') resultPreds'
+
+  unless (schemesEquivalent sch' sch) $
+    inferErrFor [decl] $ BindingTooGeneral $ name ++ ": " ++ show (sch', sch)
+
+  unless (null newPredicates) $
+    inferErrFor [decl] $ ContextTooWeak name
+
+  -- TODO: Should this allow the implemented class's type to appear here?
+  -- (make a case where an instance uses itself to test this)
+
+createInstMethodScheme :: InstanceMethod -> InferM Scheme
+createInstMethodScheme instMethod = do
+  let tdef = idType $ imInstanceDef instMethod
+  (instType, ps) <- typeFromDecl Map.empty (T.typeDefToDecl tdef)
+  unless (null ps) (error "the instance type predicates shouldn't be there")
+
+  -- TODO: But do actually deal with predicates declared on the instance
+
+  let (generics, typeDecl) = imMethodType instMethod
+  gmap <- genericMap generics
+  let selfType = simpleVar "Self"
+  let gmap' = Map.insert "Self" selfType gmap
+  (methodType, methodPreds) <- typeFromDecl gmap' typeDecl
+  let sch = Scheme [] $ Qual methodPreds methodType
+
+  let sub = makeSub [(selfType, instType)]
+  let sch' = apply sub sch
+  traceM $ "sch = " ++ debug sch
+  traceM $ "sch' = " ++ debug sch'
+  traceM $ "sub = " ++ showSub sub
+  return sch'
+
 
 -- TODO: The predicates in TypedDecls are actually the deferred predicates, so
 -- the structure doesn't really make sense, but it works for now
+-- TODO: Can this be just mapM (uncurry $ tiExpl env)?
 tiExpls :: [(String, DeclarationT)] -> Environment -> InferM TypedDecls
 tiExpls expls env = case expls of
   [] ->
@@ -444,6 +526,7 @@ getExplicitTypes :: [(String, DeclarationT)] -> InferM Environment
 getExplicitTypes expls = do
   typed <- mapM getExplicitType expls
   return $ makeEnv typed
+
 
 getExplicitType :: (name, DeclarationT) -> InferM (name, Scheme)
 getExplicitType (name, decl) = case decl of
@@ -1024,6 +1107,8 @@ typeFromDecl gmap tdecl = case tdecl of
     case Map.lookup name gmap of
       Nothing -> typeFromName name
       Just t  -> return (t, [])
+  T.Generic _ name []      ->
+    typeFromName name
   T.Generic _ name genArgs -> do
     genTypesAndPreds <- mapM (typeFromDecl gmap) genArgs
     let (genTypes, genPreds) = unzip genTypesAndPreds
@@ -1033,7 +1118,7 @@ typeFromDecl gmap tdecl = case tdecl of
         unify t (applyTypes (getRoot t) genTypes)
         t' <- applyCurrentSub t
         return (t', ps ++ concat genPreds)
-      _ -> error $ "compiler bug " ++ show t
+      _ -> error $ "compiler bug, unexpected type " ++ show t
   T.Function _ predicates argTs retT -> do
     argTypes <- mapM (typeFromDecl gmap) argTs
     retType <- typeFromDecl gmap retT
