@@ -461,7 +461,9 @@ tiInstanceMethod env instMethod = do
 createInstMethodScheme :: InstanceMethod -> InferM Scheme
 createInstMethodScheme instMethod = do
   let tdef = idType $ imInstanceDef instMethod
-  (instType, ps) <- typeFromDecl Map.empty (T.typeDefToDecl tdef)
+
+  (instType, ps) <- withLocations [imBody instMethod] $
+    typeFromDecl Map.empty (T.typeDefToDecl tdef)
   unless (null ps) (error "the instance type predicates shouldn't be there")
 
   -- TODO: But do actually deal with predicates declared on the instance
@@ -475,9 +477,6 @@ createInstMethodScheme instMethod = do
 
   let sub = makeSub [(selfType, instType)]
   let sch' = apply sub sch
-  traceM $ "sch = " ++ debug sch
-  traceM $ "sch' = " ++ debug sch'
-  traceM $ "sub = " ++ showSub sub
   return sch'
 
 
