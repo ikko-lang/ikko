@@ -1,5 +1,8 @@
 module FirstPass where
 
+
+import Debug.Trace (trace)
+
 import Control.Monad (foldM, when, unless)
 import Data.Foldable (forM_)
 import Data.Map (Map)
@@ -31,6 +34,7 @@ import Types
   , Class(..)
   , ClassEnv(..)
   , Environment(..)
+  , apply
   , envInsert
   , simpleType
   , simpleVar
@@ -194,19 +198,23 @@ addMethod p env (T.ClassMethod _ name funcType)  =
 
 convertMethodType :: Predicate -> FuncTypeT -> Scheme
 convertMethodType p (gens, tdecl) =
-  let gensWithSelf = "Self" : gens
+  let typeVars = T.gatherTypeVars tdecl
+      gens' = if Set.fromList gens /= typeVars
+        then error $ "Sets are different: " ++ show (Set.fromList gens, typeVars)
+        else gens
+      gensWithSelf = "Self" : gens'
       kinds = replicate (length gensWithSelf) Star
+
       (predicates, args, ret) = case tdecl of
         (T.Function _ ps a r) -> (ps, a, r)
         _                     -> error "compiler bug: should only see a function type"
       preds = p : map convertPredicate predicates
       fn = T.Function [] [] args ret
-      -- annoying, but necessary to avoid creating a `TCon "Self"`:
-      sub = Map.singleton selfType selfType
+      sub = Map.fromList $ zip (map simpleVar gensWithSelf) [TGen i Star | i <- [0..]]
       typ = case convertDecl sub fn of
         Right t  -> t
         Left err -> error $ "unexpected error converting type: " ++ show err
-  in Scheme kinds $ Qual preds typ
+  in Scheme kinds $ Qual (apply sub preds) typ
 
 convertPredicate :: PredicateT -> Predicate
 convertPredicate pt =

@@ -455,29 +455,39 @@ tiInstanceMethod env instMethod = do
   unless (null newPredicates) $
     inferErrFor [decl] $ ContextTooWeak name
 
-  -- TODO: Should this allow the implemented class's type to appear here?
-  -- (make a case where an instance uses itself to test this)
-
 createInstMethodScheme :: InstanceMethod -> InferM Scheme
 createInstMethodScheme instMethod = do
-  let tdef = idType $ imInstanceDef instMethod
-
+  let idef = imInstanceDef instMethod
+  let className = idClass idef
+  -- Find the type of the instance (e.g. `Bool` in `instance Show Bool`)
+  let tdef = idType idef
+  let tdecl = T.typeDefToDecl tdef
+  let typeVars = T.gatherTypeVars tdecl
+  instGMap <- genericMap (Set.toList typeVars)
   (instType, ps) <- withLocations [imBody instMethod] $
-    typeFromDecl Map.empty (T.typeDefToDecl tdef)
+    typeFromDecl instGMap tdecl
   unless (null ps) (error "the instance type predicates shouldn't be there")
+  instPreds <- mapM (predFromAST instGMap) (idPreds idef)
 
-  -- TODO: But do actually deal with predicates declared on the instance
+  -- Find the type of the method
+  let (_generics, typeDecl) = imMethodType instMethod
+  -- Handle generics (other than Self) within the type the class declares for
+  -- the method
+  -- e.g. `b` in `first(Pair(Self, b)) Self`
+  let typeVars = T.gatherTypeVars typeDecl
+  methodGMap <- genericMap (Set.toList typeVars)
+  -- In addition to making making fresh type vars for the declared type vars,
+  -- also replace the `Self` type with the instance's type
+  let methodGMap' = Map.insert "Self" instType methodGMap
+  -- Convert the type
+  (methodType, methodPreds) <- typeFromDecl methodGMap' typeDecl
+  let classPred = Pred className instType
+  let qual = Qual (classPred : instPreds ++ methodPreds) methodType
+  -- Quantify it
+  let tvs = freeTypeVars qual
+  let sch = quantify tvs qual
 
-  let (generics, typeDecl) = imMethodType instMethod
-  gmap <- genericMap generics
-  let selfType = simpleVar "Self"
-  let gmap' = Map.insert "Self" selfType gmap
-  (methodType, methodPreds) <- typeFromDecl gmap' typeDecl
-  let sch = Scheme [] $ Qual methodPreds methodType
-
-  let sub = makeSub [(selfType, instType)]
-  let sch' = apply sub sch
-  return sch'
+  return sch
 
 
 -- TODO: The predicates in TypedDecls are actually the deferred predicates, so
@@ -824,7 +834,7 @@ inferMatchExpr env targetType matchExpr = case matchExpr of
     return (addType (qualify targetType) $ S.MatchAnything a, [], [])
 
   S.MatchVariable a name -> do
-    let sch = generalize env (Qual [] targetType)
+    let sch = Scheme [] (Qual [] targetType)
     let bindings' = [(name, sch)]
     return (addType (qualify targetType) $ S.MatchVariable a name, bindings', [])
 

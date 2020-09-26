@@ -1,8 +1,3 @@
-type Maybe<val> enum:
-    Nothing
-    Just:
-        value val
-
 type Count class:
     fn count(Self) Int
 
@@ -12,13 +7,20 @@ instance Count Bool:
             return 1
         return 0
 
-instance Count Maybe<a> where a: Count:
+
+type Result<ok, err> enum:
+    Ok:
+        value ok
+    Err:
+        error err
+
+instance Count Result<a, b>:
     fn count(self):
         match self:
-            Nothing():
+            Err(_):
                 return 0
-            Just(value):
-                return count(value)
+            Ok(_):
+                return 1
 
 fn main():
     print("\n")
