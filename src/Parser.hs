@@ -28,7 +28,6 @@ type MatchExpression = S.MatchExpression Annotation
 type Expression      = E.Expression Annotation
 type Value           = E.Value Annotation
 type Type            = T.Type
-type FuncType        = T.FuncType Annotation
 type TypeDecl        = T.TypeDecl Annotation
 type TypeDef         = T.TypeDef Annotation
 type EnumOption      = T.EnumOption Annotation
@@ -94,7 +93,6 @@ funcDeclaration = do
   string_ "fn"
   any1LinearWhitespace
   name <- valueName
-  gens <- optionMaybe $ try genericList
   char_ '('
   anyLinearWhitespace
   argsAndTypes <- funcArgDecl
@@ -105,7 +103,7 @@ funcDeclaration = do
   mpredicates <- optionMaybe $ try $ do
     any1Whitespace
     whereClauseParser
-  mtype <- assembleFunctionType (fromMaybe [] gens) argTypes retType mpredicates
+  mtype <- assembleFunctionType argTypes retType mpredicates
   char_ ':'
   statementSep
   D.Function [] name mtype args <$> blockStatement
@@ -127,12 +125,11 @@ predParser = do
   return $ T.Predicate { T.predAnn=[], T.predClass=cls, T.predType=tv }
 
 assembleFunctionType
-  :: [Type]
-  -> [Maybe TypeDecl]
+  :: [Maybe TypeDecl]
   -> Maybe TypeDecl
   -> Maybe [Predicate]
-  -> Parser (Maybe FuncType)
-assembleFunctionType gens argTypes retType predicates =
+  -> Parser (Maybe TypeDecl)
+assembleFunctionType argTypes retType predicates =
   if allNothings argTypes && isNothing retType && isNothing predicates
   then return Nothing
   else do
@@ -140,7 +137,7 @@ assembleFunctionType gens argTypes retType predicates =
     let retT = unwrapOr retType nilType
     let preds = unwrapOr predicates []
     let typ = T.Function [] preds argTs retT
-    return $ Just (gens, typ)
+    return $ Just typ
 
 
 genericList :: Parser [Type]
@@ -706,8 +703,6 @@ classMethod = do
   string_ "fn"
   any1LinearWhitespace
   name <- valueName
-  mgens <- optionMaybe $ try genericList
-  let gens = fromMaybe [] mgens
 
   string_ "("
   -- TODO: Allow line wrapping with indentation (like funcTypeParser)
@@ -725,7 +720,7 @@ classMethod = do
   statementSep
 
   let typ = T.Function [] predicates argTypes retType
-  return $ T.ClassMethod [] name (gens, typ)
+  return $ T.ClassMethod [] name typ
 
 genericType :: Parser TypeDecl
 genericType = do

@@ -1,7 +1,7 @@
-fn are_same<t>(a t, b t) Bool where t: Eq:
+fn are_same(a t, b t) Bool where t: Eq:
     return a == b
 
-fn max<t>(a t, b t) t where t: Ord:
+fn max(a t, b t) t where t: Ord:
     if b > a:
         return b
     return a

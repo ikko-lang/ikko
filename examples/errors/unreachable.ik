@@ -1,5 +1,5 @@
-fn main() {
+fn main():
   print("a")
   return
   print("b")
-}
+

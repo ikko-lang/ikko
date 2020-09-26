@@ -470,7 +470,7 @@ createInstMethodScheme instMethod = do
   instPreds <- mapM (predFromAST instGMap) (idPreds idef)
 
   -- Find the type of the method
-  let (_generics, typeDecl) = imMethodType instMethod
+  let typeDecl = imMethodType instMethod
   -- Handle generics (other than Self) within the type the class declares for
   -- the method
   -- e.g. `b` in `first(Pair(Self, b)) Self`
@@ -545,8 +545,8 @@ getExplicitType (name, decl) = case decl of
     return (name, Scheme [] $ Qual ps t)
 
   D.Function _ _ mgendecl _ _ -> do
-    let Just (gens, tdecl) = mgendecl
-    gmap <- genericMap gens
+    let Just tdecl = mgendecl
+    gmap <- genericMap $ Set.toList $ T.gatherTypeVars tdecl
     (t, ps) <- withLocations [decl] $ typeFromDecl gmap tdecl
     let varSet = freeTypeVars $ Map.elems gmap
     return (name, quantify varSet $ Qual ps t)

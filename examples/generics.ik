@@ -7,21 +7,20 @@ type Maybe<val> enum:
     Just:
         value val
 
-
-fn isJust<v>(m Maybe<v>) Bool:
+fn isJust(m Maybe<v>) Bool:
     match m:
         Nothing():
             return False
         Just(_):
             return True
 
-fn flip<a, b>(p Pair<a, b>) Pair<b, a>:
+fn flip(p Pair<a, b>) Pair<b, a>:
     return Pair{
         first: p.second,
         second: p.first,
     }
 
-fn foo<a, b>(p Pair<a, b>) Pair<a, b>:
+fn foo(p Pair<a, b>) Pair<a, b>:
     return p
 
 fn main():

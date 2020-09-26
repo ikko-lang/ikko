@@ -5,7 +5,7 @@ type LinkedList<t> enum:
     next LinkedList<t>
 
 
-fn map<a, b>(f fn(a) b, list LinkedList<a>) LinkedList<b>:
+fn map(f fn(a) b, list LinkedList<a>) LinkedList<b>:
     match list:
         End:
             return End{}
@@ -15,7 +15,7 @@ fn map<a, b>(f fn(a) b, list LinkedList<a>) LinkedList<b>:
                 next: map(f, next),
             }
 
-fn fold<a, b>(reducer fn(a, b) b, init b, list LinkedList<a>) b:
+fn fold(reducer fn(a, b) b, init b, list LinkedList<a>) b:
     match list:
         End:
             return init
@@ -23,13 +23,13 @@ fn fold<a, b>(reducer fn(a, b) b, init b, list LinkedList<a>) b:
             let rest = fold(reducer, init, next)
             return reducer(val, rest)
 
-fn prepend<a>(val a, list LinkedList<a>) LinkedList<a>:
+fn prepend(val a, list LinkedList<a>) LinkedList<a>:
     return Link{
         value: val,
         next: list,
     }
 
-fn singleton<a>(val a) LinkedList<a>:
+fn singleton(val a) LinkedList<a>:
     return prepend(val, End{})
 
 fn double(x Int) Int:

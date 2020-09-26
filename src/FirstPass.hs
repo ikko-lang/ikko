@@ -61,7 +61,6 @@ type MatchExpressionT = S.MatchExpression Annotation
 type StatementT       = S.Statement       Annotation
 type TypeDeclT        = T.TypeDecl        Annotation
 type TypeDefT         = T.TypeDef         Annotation
-type FuncTypeT        = T.FuncType        Annotation
 type ClassMethodT     = T.ClassMethod     Annotation
 type PredicateT       = T.Predicate       Annotation
 
@@ -88,7 +87,7 @@ data InstanceMethod =
   InstanceMethod
   { imName        :: String
   , imBody        :: DeclarationT
-  , imMethodType  :: FuncTypeT
+  , imMethodType  :: TypeDeclT
   , imInstanceDef :: InstanceDefinition
   }
   deriving (Eq, Show)
@@ -196,13 +195,11 @@ addMethod p env (T.ClassMethod _ name funcType)  =
   let sch = convertMethodType p funcType
   in envInsert name sch env
 
-convertMethodType :: Predicate -> FuncTypeT -> Scheme
-convertMethodType p (gens, tdecl) =
+convertMethodType :: Predicate -> TypeDeclT -> Scheme
+convertMethodType p tdecl =
   let typeVars = T.gatherTypeVars tdecl
-      gens' = if Set.fromList gens /= typeVars
-        then error $ "Sets are different: " ++ show (Set.fromList gens, typeVars)
-        else gens
-      gensWithSelf = "Self" : gens'
+      gens = Set.toList typeVars
+      gensWithSelf = "Self" : gens
       kinds = replicate (length gensWithSelf) Star
 
       (predicates, args, ret) = case tdecl of
@@ -301,8 +298,7 @@ ensureUniqueMethodNames className methodNames =
 --  * the Self type is used at least once
 --  * the class's name isn't otherwise used directly (except in predicates)
 checkMethodType :: String -> ClassMethodT -> Result ()
-checkMethodType className (T.ClassMethod _ name funcType) = do
-  let (_generics, tdecl) = funcType
+checkMethodType className (T.ClassMethod _ name tdecl) = do
   (argTs, retT) <- case tdecl of
     T.Function _ _ps ats rt -> return (ats, rt)
     _                       -> error "compiler bug"
@@ -401,7 +397,7 @@ checkInstanceMethod :: String -> [ClassMethodT] -> DeclarationT -> Result ()
 checkInstanceMethod className classMethods instMethod = do
   let methodName = getDeclaredName instMethod
 
-  let (_, methodType) =
+  let methodType =
         head [ mtype | T.ClassMethod _ mname mtype <- classMethods , mname == methodName ]
 
   argTypes <- case methodType of

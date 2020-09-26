@@ -1,4 +1,4 @@
-fn identity<t>(x t) t:
+fn identity(x t) t:
     return x
 
 fn main():

@@ -215,7 +215,7 @@ recursiveUnification = do
 
 gettingExplicitType :: Assertion
 gettingExplicitType = do
-  let tdecl = (["A"], T.Function [] [] [T.TypeName [] "A"] (T.TypeName [] "A"))
+  let tdecl = T.Function [] [] [T.TypeName [] "a"] (T.TypeName [] "a")
   let body = S.Block [] [S.Return [] $ Just $ E.Var [] "a"]
   let decl = D.Function [] "identity" (Just tdecl) ["a"] body
   let result = inferEmpty $ getExplicitType ("identity", decl)
@@ -483,7 +483,7 @@ findDependencies = do
   -- g(x) { return f(x); }
   -- h() { return g; }
   let intName = T.TypeName [] "Int"
-  let typeAnnotation = Just ([],T.Function [] [] [intName] intName)
+  let typeAnnotation = Just $ T.Function [] [] [intName] intName
   let fExpl = D.Function [] "f" typeAnnotation ["x"] (returnJust $ E.Call [] varG [varX])
   let bindings3 = [("f", fExpl), ("g", gCallsF), ("h", hReturnsG)]
   let (di, de) = splitExplicit $ Map.fromList bindings3
@@ -566,7 +566,7 @@ explicitFunctionBinding :: Assertion
 explicitFunctionBinding = do
   -- func(x Int) Int { return x }
   let intName = T.TypeName [] "Int"
-  let typeAnnotation = Just ([], T.Function [] [] [intName] intName)
+  let typeAnnotation = Just $ T.Function [] [] [intName] intName
   let returnStmt = returnJust (E.Var [] "x")
   let funcInts = D.Function [] "f" typeAnnotation ["x"] returnStmt
   let fnType = asScheme $ makeFuncType [tInt] tInt
@@ -576,7 +576,7 @@ explicitFunctionBinding = do
   -- This should be rejected because the return type is actually Int
   -- func(x Int) Bool { return x }
   let boolName = T.TypeName [] "Bool"
-  let type2 = Just ([], T.Function [] [] [intName] boolName)
+  let type2 = Just $ T.Function [] [] [intName] boolName
   let funcWrongType = D.Function [] "f" type2 ["x"] returnStmt
   assertLeft $ inferModule $ makeModule  [("f", funcWrongType)]
 

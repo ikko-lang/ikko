@@ -5,7 +5,7 @@ module AST.Declaration where
 import AST.Annotation (Annotated)
 import AST.Expression (Expression)
 import AST.Statement (Statement)
-import AST.Type (TypeDecl, TypeDef, FuncType, Predicate, defName)
+import AST.Type (TypeDecl, TypeDef, Predicate, defName)
 
 import Util.PrettyPrint (Render, PrettyPrint, render, printLines, writeLine, writeComment)
 import Util.Functions (commaSep)
@@ -16,7 +16,7 @@ type File a = [Declaration a]
 
 data Declaration a
   = Let a String (Maybe (TypeDecl a)) (Expression a)
-  | Function a String (Maybe (FuncType a)) [String] (Statement a)
+  | Function a String (Maybe (TypeDecl a)) [String] (Statement a)
   | TypeDef a (TypeDef a) (TypeDecl a)
   | Instance a String (TypeDef a) [Predicate a] [Declaration a] -- class, type, predicates, methods
   deriving (Eq, Show, Functor, Foldable, Traversable)

@@ -130,7 +130,7 @@ tests =
     (eBinary E.BoolAnd
      (eBinary E.Eq (eVal (intVal 1)) (eVal (intVal 1)))
      (eBinary E.Less (eVal (intVal 2)) (eVal (intVal 3))))
-  , expectParses typeParser "Int" "Int"
+  , expectParses typeNameParser "Int" "Int"
   , expectParsesA typeDefParser "struct:\n  a Int\n  b String\n"
     (T.Struct [] [("a", intT), ("b", stringT)])
   , testEnumType
@@ -250,7 +250,7 @@ testParsingFunc2 =
 testParsingTypedFunction :: Test
 testParsingTypedFunction =
   let text = "fn main(a Int, b Bool) Bool:\n//a comment\n  pass"
-      fnType = Just ([], T.Function [] [] [intT, boolT] boolT)
+      fnType = Just $ T.Function [] [] [intT, boolT] boolT
       expected = D.Function [] "main" fnType ["a", "b"] (sBlock [S.Pass []])
   in expectParsesA declarationParser text expected
 

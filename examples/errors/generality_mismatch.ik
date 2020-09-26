@@ -1,7 +1,7 @@
-fn xy_same<a, b>(x a, y a, z b) a:
+fn xy_same(x a, y a, z b) a:
     return x
 
-fn yz_same<a, b>(x a, y b, z b) a:
+fn yz_same(x a, y b, z b) a:
     return x
 
 fn main():

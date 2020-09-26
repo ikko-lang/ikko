@@ -7,10 +7,10 @@ fn use_two_types(a fn(Bool) Bool, b fn(String) String):
     print(String(b("foo")))
     print("\n")
 
-fn more_general<a>(x a) a:
+fn more_general(x a) a:
     return x
 
-fn make_less_general<a>(y a) fn(a) a:
+fn make_less_general(y a) fn(a) a:
     return more_general
 
 fn problem(x):

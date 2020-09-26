@@ -1,11 +1,11 @@
 type Container<a> struct:
     function fn(a) a
 
-fn broken_identity<t>(x t) t:
+fn broken_identity(x t) t:
     print("called broken_identity\n")
     return broken_identity(x)
 
-fn identity<t>(x t) t:
+fn identity(x t) t:
     print("called identity\n")
     return x
 

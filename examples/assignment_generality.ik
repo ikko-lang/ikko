@@ -1,7 +1,7 @@
-fn more_general<a>(x a) a:
+fn more_general(x a) a:
     return x
 
-fn just_as_general<a>(x a) a:
+fn just_as_general(x a) a:
     return x
 
 fn less_general(x Int) Int:

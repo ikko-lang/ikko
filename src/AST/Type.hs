@@ -48,7 +48,7 @@ gatherTypeVars td = case td of
         types = concatMap (map snd) options
     in gatherTVList types
   (ClassDecl _ _ methods) ->
-    let methodTypes = [t | ClassMethod _ _ (_, t) <- methods]
+    let methodTypes = [t | ClassMethod _ _ t <- methods]
     in gatherTVList methodTypes
 
 
@@ -86,16 +86,10 @@ typeDefToDecl def = Generic (defAnn def) (defName def) generics
 
 
 data ClassMethod a
-  = ClassMethod a String (FuncType a)
+  = ClassMethod a String (TypeDecl a)
   deriving (Eq, Show, Functor, Foldable, Traversable)
 
 instance Annotated ClassMethod where
   -- use all default methods
-
-
--- This is a bit gross, but whatever
--- (generics, TFunc _ _)
-type FuncType a = ([Type], TypeDecl a)
-
 
 type EnumOption a = [(String, TypeDecl a)]
