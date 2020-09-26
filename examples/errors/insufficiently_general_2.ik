@@ -1,7 +1,7 @@
-fn more_general<A, B>(x A, y B) A:
+fn more_general<a, b>(x a, y b) a:
     return x
 
-fn less_general<A>(x A, y A) A:
+fn less_general<a>(x a, y a) a:
     return x
 
 fn main():

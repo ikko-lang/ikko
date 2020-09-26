@@ -1,7 +1,7 @@
-type Maybe<Val> enum:
+type Maybe<val> enum:
     Nothing
     Just:
-        value Val
+        value val
 
 type Count class:
     fn count(Self) Int
@@ -12,7 +12,7 @@ instance Count Bool:
             return 1
         return 0
 
-instance Count Maybe<A> where A: Count:
+instance Count Maybe<a> where a: Count:
     fn count(self):
         match self:
             Nothing():

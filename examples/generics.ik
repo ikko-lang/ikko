@@ -1,27 +1,27 @@
-type Pair<A, B> struct:
-    first A
-    second B
+type Pair<a, b> struct:
+    first a
+    second b
 
-type Maybe<Val> enum:
+type Maybe<val> enum:
     Nothing
     Just:
-        value Val
+        value val
 
 
-fn isJust<V>(m Maybe<V>) Bool:
+fn isJust<v>(m Maybe<v>) Bool:
     match m:
         Nothing():
             return False
         Just(_):
             return True
 
-fn flip<A, B>(p Pair<A, B>) Pair<B, A>:
+fn flip<a, b>(p Pair<a, b>) Pair<b, a>:
     return Pair{
         first: p.second,
         second: p.first,
     }
 
-fn foo<A, B>(p Pair<A, B>) Pair<A, B>:
+fn foo<a, b>(p Pair<a, b>) Pair<a, b>:
     return p
 
 fn main():

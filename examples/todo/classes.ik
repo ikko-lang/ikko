@@ -18,5 +18,5 @@ instance Printable Point:
   fn print(self):
      print("x: {}, y: {}".format(x, y))
 
-fn takes_printable<A>(p A) where A: Printable:
+fn takes_printable<a>(p a) where a: Printable:
   p.print()

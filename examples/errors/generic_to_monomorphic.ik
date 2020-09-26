@@ -1,4 +1,4 @@
-fn identity<T>(x T) T:
+fn identity<t>(x t) t:
     return x
 
 fn same_int(x Int) Int:

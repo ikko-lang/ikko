@@ -1,10 +1,12 @@
-type Container<A> struct:
-    function fn(A) A
+type Container<a> struct:
+    function fn(a) a
 
-fn broken_identity<T>(x T) T:
+fn broken_identity<t>(x t) t:
+    print("called broken_identity\n")
     return broken_identity(x)
 
-fn identity<T>(x T) T:
+fn identity<t>(x t) t:
+    print("called identity\n")
     return x
 
 fn main():

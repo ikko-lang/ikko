@@ -1,4 +1,4 @@
-fn identity<A>(a A) A:
+fn identity<a>(a a) a:
     return a
 
 fn main():

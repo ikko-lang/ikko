@@ -117,12 +117,13 @@ whereClauseParser = do
   any1Whitespace
   sepBy (addLocation predParser) commaSep
 
+-- e.g. `t: Eq`
 predParser :: Parser Predicate
 predParser = do
-  tv <- typeParser
+  tv <- valueName
   char_ ':'
   any1LinearWhitespace
-  cls <- typeParser
+  cls <- typeNameParser
   return $ T.Predicate { T.predAnn=[], T.predClass=cls, T.predType=tv }
 
 assembleFunctionType
@@ -145,7 +146,7 @@ assembleFunctionType gens argTypes retType predicates =
 genericList :: Parser [Type]
 genericList = do
   string_ "<"
-  gens <- sepBy typeParser commaSep
+  gens <- sepBy valueName commaSep
   string_ ">"
   return gens
 
@@ -362,7 +363,7 @@ matchVariable = S.MatchVariable [] <$> valueName
 
 matchStructure :: Parser MatchExpression
 matchStructure = do
-  structType <- typeParser
+  structType <- typeNameParser
   minner <- optionMaybe $ try $ do
     char_ '('
     anyWhitespace
@@ -487,7 +488,7 @@ argsEnd = do
 
 castExpr :: Parser Expression
 castExpr = do
-  typ <- typeParser
+  typ <- typeNameParser
   E.Cast [] typ <$> parenExpr'
 
 parenExpr' :: Parser Expression
@@ -615,8 +616,8 @@ unaryOpParser =
 nilType :: TypeDecl
 nilType = T.TypeName [] "()"
 
-typeParser :: Parser Type
-typeParser = string "()" <|> typeName
+typeNameParser :: Parser Type
+typeNameParser = string "()" <|> typeName
 
 typeDefParser :: Parser TypeDecl
 typeDefParser = addLocation $ tryAll parsers
@@ -627,11 +628,15 @@ typeDefParser = addLocation $ tryAll parsers
           , classDefParser
           , genericType
           , namedType
+          , typeVariable
           ]
 
 simpleTypeDefParser :: Parser TypeDecl
 simpleTypeDefParser = addLocation $ tryAll parsers
-  where parsers = [funcTypeParser, genericType, namedType]
+  where parsers = [funcTypeParser, genericType, namedType, typeVariable]
+
+typeNameOrVar :: Parser TypeDecl
+typeNameOrVar = addLocation $ tryAll [namedType, typeVariable]
 
 enumTypeParser :: Parser TypeDecl
 enumTypeParser = do
@@ -724,14 +729,17 @@ classMethod = do
 
 genericType :: Parser TypeDecl
 genericType = do
-  name <- typeParser
+  name <- typeNameParser <|> valueName
   string_ "<"
   parts <- sepBy simpleTypeDefParser commaSep
   string_ ">"
   return $ T.Generic [] name parts
 
 namedType :: Parser TypeDecl
-namedType = T.TypeName [] <$> typeParser
+namedType = T.TypeName [] <$> typeNameParser
+
+typeVariable :: Parser TypeDecl
+typeVariable = T.TypeName [] <$> valueName
 
 ---- Helper functions ----
 

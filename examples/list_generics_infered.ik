@@ -1,8 +1,8 @@
-type LinkedList<T> enum:
+type LinkedList<t> enum:
   End
   Link:
-    value T
-    next LinkedList<T>
+    value t
+    next LinkedList<t>
 
 fn map(f, list):
     match list:
