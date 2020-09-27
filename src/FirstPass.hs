@@ -1,8 +1,6 @@
 module FirstPass where
 
 
-import Debug.Trace (trace)
-
 import Control.Monad (foldM, when, unless)
 import Data.Foldable (forM_)
 import Data.Map (Map)
@@ -368,7 +366,7 @@ addInstance classesMap ce idef = do
 
   cls' <- insertInstance idef cls
   let newClasses = Map.insert className cls' (classes ce)
-  return ce { classes=newClasses}
+  return ce { classes=newClasses }
 
 -- Check that the instance declares all the methods in the class (an no extras)
 -- and that the arguments of each method match those from the method on the
@@ -589,7 +587,7 @@ convertDef (T.TypeDef _ name gens) = do
   unless (null dups) $
     Left $ MalformedType $ "type variable used twice: " ++ show dups
   let k = kindN $ length gens
-  let genTypes = map simpleType gens
+  let genTypes = map simpleVar gens
   return $ applyTypes (TCon name k) genTypes
 
 -- select and deduplicate function and let bindings

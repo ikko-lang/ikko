@@ -17,10 +17,11 @@ instance Count Maybe<a> where a: Eq:
                 else:
                     return 2
 
-fn main():
+fn use_instance() ():
     let m = Just{
         value: "foo",
     }
-    // TODO: This doesn't work for some reason
-    // print(String(count(m)))
+    print(String(count(m)))
+
+fn main():
     print("\n")
