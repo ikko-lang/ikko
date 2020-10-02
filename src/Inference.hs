@@ -142,6 +142,7 @@ newtype Bindings = Bindings [Binding]
 data InferResult
   = InferResult
     { topLevelBindings :: [(String, DeclarationT)]
+    , topLevelMethods  :: [InstanceMethod]
     , topLevelEnv      :: Environment }
   deriving (Show)
 
@@ -154,7 +155,7 @@ inferModule m =
 inferProgram :: Module -> InferM InferResult
 inferProgram m = do
   let bindGroup = makeBindGroup m
-  (binds, env, ps) <- inferBindGroup bindGroup (rootEnv m)
+  (binds, env, ps, typedMethods) <- inferBindGroup bindGroup (rootEnv m)
 
   -- Reduce the predicates
   ps' <- applyCurrentSub ps
@@ -170,7 +171,8 @@ inferProgram m = do
   -- And finally apply that to the result
   Bindings binds' <- applyCurrentSub binds
   env' <- applyCurrentSub env
-  return InferResult { topLevelBindings=binds', topLevelEnv=env' }
+  typedMethods' <- applyCurrentSub typedMethods
+  return InferResult { topLevelBindings=binds', topLevelEnv=env', topLevelMethods=typedMethods' }
 
 makeBindGroup :: Module -> BindGroup
 makeBindGroup m =
@@ -389,7 +391,7 @@ extendSub sub = do
   let s = composeSubs s1 sub
   modify (\st -> st { currentSub=s })
 
-inferBindGroup :: BindGroup -> Environment -> InferM (Bindings, Environment, Preds)
+inferBindGroup :: BindGroup -> Environment -> InferM (Bindings, Environment, Preds, [InstanceMethod])
 inferBindGroup bg env = do
   let expls = explicitBindings bg
   explicitBindingTypes <- getExplicitTypes expls
@@ -404,10 +406,10 @@ inferBindGroup bg env = do
   let (bindings2, ps2) = toBindings decls2
 
   let instMethods = instanceMethods bg
-  mapM_ (tiInstanceMethod env) instMethods
+  typedMethods <- mapM (tiInstanceMethod env) instMethods
 
   -- ps1 and ps2 are _deferred_ predicates
-  return (Bindings $ bindings1 ++ bindings2, env', ps1 ++ ps2)
+  return (Bindings $ bindings1 ++ bindings2, env', ps1 ++ ps2, typedMethods)
 
 
 toBindings :: TypedDecls -> ([Binding], Preds)
@@ -415,7 +417,7 @@ toBindings = foldl extractPreds ([], [])
   where extractPreds (binds, preds) (name, decl, ps) =
           ((name, decl) : binds, ps ++ preds)
 
-tiInstanceMethod :: Environment -> InstanceMethod -> InferM ()
+tiInstanceMethod :: Environment -> InstanceMethod -> InferM InstanceMethod
 tiInstanceMethod env instMethod = do
   let name = imName instMethod
   -- Get the declared type
@@ -454,6 +456,8 @@ tiInstanceMethod env instMethod = do
 
   unless (null newPredicates) $
     inferErrFor [decl] $ ContextTooWeak name
+
+  return instMethod { imBody = resultDecl }
 
 createInstMethodScheme :: InstanceMethod -> InferM Scheme
 createInstMethodScheme instMethod = do

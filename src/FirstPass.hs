@@ -9,7 +9,7 @@ import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Maybe (mapMaybe, fromMaybe)
 
-import AST.Annotation (Annotated, Annotation, getLocation)
+import AST.Annotation (Annotated, Annotation, getLocation, mapType)
 import AST.Declaration
   ( Declaration(..)
   , getDeclaredName )
@@ -24,6 +24,7 @@ import Errors
 import Types
   ( Scheme(..)
   , Type(..)
+  , Types(..)
   , Kind(..)
   , Substitution
   , Qualified(..)
@@ -89,6 +90,13 @@ data InstanceMethod =
   , imInstanceDef :: InstanceDefinition
   }
   deriving (Eq, Show)
+
+instance Types InstanceMethod where
+  apply sub im =
+    let body' = mapType (apply sub) (imBody im)
+    in im { imBody=body' }
+  freeTypeVars =
+    error "don't use freeTypeVars on a InstanceMethod"
 
 valueType :: Constructor -> Scheme
 valueType ctor =
