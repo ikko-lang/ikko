@@ -15,23 +15,21 @@ import Inference
   ( InferResult(..)
   , topLevelBindings )
 import AST.Annotation (Annotation, addType)
-import qualified AST.Declaration as D
-import qualified AST.Expression as E
-import qualified AST.Statement as S
+import qualified AST
 import Types (tUnit, makeFuncType, qualify)
 
 
-type ExpressionT      = E.Expression      Annotation
-type ValueT           = E.Value           Annotation
-type MatchCaseT       = S.MatchCase       Annotation
-type MatchExpressionT = S.MatchExpression Annotation
-type StatementT       = S.Statement       Annotation
+type ExpressionT      = AST.Expression      Annotation
+type ValueT           = AST.Value           Annotation
+type MatchCaseT       = AST.MatchCase       Annotation
+type MatchExpressionT = AST.MatchExpression Annotation
+type StatementT       = AST.Statement       Annotation
 
 
 interpret :: InferResult -> IO ()
 interpret body =
   let mainT = makeFuncType [] tUnit
-      callMain = E.Call [] (addType (qualify mainT) $ E.Var [] "main") []
+      callMain = AST.Call [] (addType (qualify mainT) $ AST.Var [] "main") []
   in do
     scope <- startingState body
     _ <- interpretExpr scope callMain
@@ -46,7 +44,7 @@ startingState body = do
   -- TODO: Also evaluate constant expression
   let functions =
         [ (name, toClosure scope args stmt)
-        | (name, D.Function _ _ _ args stmt) <- binds ]
+        | (name, AST.DFunction _ _ _ args stmt) <- binds ]
   insertAll functions scope
 
 builtIns :: Map String Value
@@ -66,29 +64,31 @@ insertAll _ [] = error "How did insertAll get a scope with no parts?"
 
 interpretExpr :: Scope -> ExpressionT -> IO Value
 interpretExpr scope expr = case expr of
-  E.Paren _ ex ->
+  AST.Paren _ ex ->
     interpretExpr scope ex
-  E.Val _ val ->
+  AST.Val _ val ->
     interpretVal scope val
-  E.Unary _ uop ex -> do
+  AST.Unary _ uop ex -> do
     val <- interpretExpr scope ex
     applyUOp uop val
-  E.Binary _ bop l r -> do
+  AST.Binary _ bop l r -> do
     lVal <- interpretExpr scope l
     rVal <- interpretExpr scope r
     applyBOp bop lVal rVal
-  E.Call _ fnEx argExs -> do
+  AST.Call _ fnEx argExs -> do
     fnVal <- interpretExpr scope fnEx
     argVals <- mapM (interpretExpr scope) argExs
     callFunction fnVal argVals
-  E.Cast _ t ex -> do
+  AST.Cast _ t ex -> do
     val <- interpretExpr scope ex
     castVal t val
-  E.Var _ name ->
+  AST.Var _ name ->
     lookupVar scope name
-  E.Access _ ex field -> do
+  AST.Access _ ex field -> do
     val <- interpretExpr scope ex
     accessField val field
+  AST.Lambda _ _args _ret ->
+    error "TODO: lambda"
 
 data StmtResult
   = Returned Value
@@ -100,32 +100,32 @@ getReturnValue FellThrough = VVoid
 
 interpretStmt :: Scope -> StatementT -> IO StmtResult
 interpretStmt scope stmt = case stmt of
-  S.Return _ Nothing ->
+  AST.Return _ Nothing ->
     return $ Returned VVoid
-  S.Return _ (Just expr) -> do
+  AST.Return _ (Just expr) -> do
     val <- interpretExpr scope expr
     return $ Returned val
 
-  S.Let _ name _ expr -> do
+  AST.Let _ name _ expr -> do
     val <- interpretExpr scope expr
     let (s0:_) = scope
     ss <- readIORef s0
     writeIORef s0 (Map.insert name val ss)
     return FellThrough
 
-  S.Assign _ names expr -> do
+  AST.Assign _ names expr -> do
     val <- interpretExpr scope expr
     assign scope names val
     return FellThrough
 
-  S.Block _ stmts ->
+  AST.Block _ stmts ->
     interpretBlock scope stmts
 
-  S.Expr _ expr -> do
+  AST.Expr _ expr -> do
     _ <- interpretExpr scope expr
     return FellThrough
 
-  S.If _ tst thn els -> do
+  AST.If _ tst thn els -> do
     testVal <- interpretExpr scope tst
     b <- requireBool testVal
     if b
@@ -134,7 +134,7 @@ interpretStmt scope stmt = case stmt of
             Nothing -> return FellThrough
             Just st -> interpretStmt scope st
 
-  S.While _ tst blk -> do
+  AST.While _ tst blk -> do
     testVal <- interpretExpr scope tst
     b <- requireBool testVal
     if b
@@ -149,17 +149,17 @@ interpretStmt scope stmt = case stmt of
       else
         return FellThrough
 
-  S.Match _ expr cases -> do
+  AST.Match _ expr cases -> do
     val <- interpretExpr scope expr
     runMatchingCase scope val cases
 
-  S.Pass _ ->
+  AST.Pass _ ->
     return FellThrough
 
 runMatchingCase :: Scope -> Value -> [MatchCaseT] -> IO StmtResult
 runMatchingCase _ _ [] =
   error "no cases matched"
-runMatchingCase scope val (S.MatchCase me ms:cs) = do
+runMatchingCase scope val (AST.MatchCase me ms:cs) = do
   matched <- checkMatch val me
   case matched of
     Nothing ->
@@ -170,11 +170,11 @@ runMatchingCase scope val (S.MatchCase me ms:cs) = do
 
 checkMatch :: Value -> MatchExpressionT -> IO (Maybe [(String, Value)])
 checkMatch value matchExpr = case matchExpr of
-  S.MatchAnything _ ->
+  AST.MatchAnything _ ->
     return (Just [])
-  S.MatchVariable _ name ->
+  AST.MatchVariable _ name ->
     return (Just [(name, value)])
-  S.MatchStructure _ name fields ->
+  AST.MatchStructure _ name fields ->
     case value of
       VStruct sname valRefs ->
         if name == sname && length valRefs == length fields
@@ -203,11 +203,11 @@ interpretBlockScoped scope (s:stmts) = do
 
 interpretVal :: Scope -> ValueT -> IO Value
 interpretVal scope val = case val of
-  E.StrVal    _ s           -> return $ VString s
-  E.BoolVal   _ b           -> return $ VBool b
-  E.IntVal    _ i           -> return $ VInt i
-  E.FloatVal  _ f           -> return $ VFloat f
-  E.StructVal _ name fields -> do
+  AST.StrVal    _ s           -> return $ VString s
+  AST.BoolVal   _ b           -> return $ VBool b
+  AST.IntVal    _ i           -> return $ VInt i
+  AST.FloatVal  _ f           -> return $ VFloat f
+  AST.StructVal _ name fields -> do
     let mapField (fname, fexpr) = do
           fval <- interpretExpr scope fexpr
           ref <- newIORef fval
@@ -257,40 +257,40 @@ updateRef ref names newVal = do
 
 
 
-applyUOp :: E.UnaryOp -> Value -> IO Value
+applyUOp :: AST.UnaryOp -> Value -> IO Value
 applyUOp op val = case op of
-  E.BitInvert -> do
+  AST.BitInvert -> do
     i <- requireInt val
     return $ VInt $ complement i
-  E.BoolNot -> do
+  AST.BoolNot -> do
     b <- requireBool val
     return $ VBool $ not b
 
-applyBOp :: E.BinOp -> Value -> Value -> IO Value
+applyBOp :: AST.BinOp -> Value -> Value -> IO Value
 applyBOp op l r = case op of
-  E.Less      -> numOp (\a b -> VBool $ a <  b) (\a b -> VBool $ a <  b) l r
-  E.LessEq    -> numOp (\a b -> VBool $ a <= b) (\a b -> VBool $ a <= b) l r
-  E.Greater   -> numOp (\a b -> VBool $ a >  b) (\a b -> VBool $ a >  b) l r
-  E.GreaterEq -> numOp (\a b -> VBool $ a >= b) (\a b -> VBool $ a >= b) l r
-  E.Eq        -> return $ VBool $ l == r
-  E.NotEq     -> return $ VBool $ l /= r
+  AST.Less      -> numOp (\a b -> VBool $ a <  b) (\a b -> VBool $ a <  b) l r
+  AST.LessEq    -> numOp (\a b -> VBool $ a <= b) (\a b -> VBool $ a <= b) l r
+  AST.Greater   -> numOp (\a b -> VBool $ a >  b) (\a b -> VBool $ a >  b) l r
+  AST.GreaterEq -> numOp (\a b -> VBool $ a >= b) (\a b -> VBool $ a >= b) l r
+  AST.Eq        -> return $ VBool $ l == r
+  AST.NotEq     -> return $ VBool $ l /= r
 
-  E.BoolAnd   -> VBool <$> boolOp (&&)   l r
-  E.BoolOr    -> VBool <$> boolOp (||)   l r
+  AST.BoolAnd   -> VBool <$> boolOp (&&)   l r
+  AST.BoolOr    -> VBool <$> boolOp (||)   l r
 
-  E.Plus      -> numOp (\a b -> VInt $ a + b) (\a b -> VFloat $ a + b) l r
-  E.Minus     -> numOp (\a b -> VInt $ a - b) (\a b -> VFloat $ a - b) l r
-  E.Times     -> numOp (\a b -> VInt $ a * b) (\a b -> VFloat $ a * b) l r
-  E.Divide    -> numOp (\a b -> VInt $ a `div` b) (\a b -> VFloat $ a / b) l r
-  E.Mod       -> VInt  <$> intOp  mod    l r
-  E.Power     -> numOp (\a b -> VInt $ a ^ b) (\a b -> VFloat $ a ** b) l r
+  AST.Plus      -> numOp (\a b -> VInt $ a + b) (\a b -> VFloat $ a + b) l r
+  AST.Minus     -> numOp (\a b -> VInt $ a - b) (\a b -> VFloat $ a - b) l r
+  AST.Times     -> numOp (\a b -> VInt $ a * b) (\a b -> VFloat $ a * b) l r
+  AST.Divide    -> numOp (\a b -> VInt $ a `div` b) (\a b -> VFloat $ a / b) l r
+  AST.Mod       -> VInt  <$> intOp  mod    l r
+  AST.Power     -> numOp (\a b -> VInt $ a ^ b) (\a b -> VFloat $ a ** b) l r
 
-  E.BitAnd    -> VInt  <$> intOp  (.&.)  l r
-  E.BitOr     -> VInt  <$> intOp  (.|.)  l r
-  E.BitXor    -> VInt  <$> intOp  xor    l r
+  AST.BitAnd    -> VInt  <$> intOp  (.&.)  l r
+  AST.BitOr     -> VInt  <$> intOp  (.|.)  l r
+  AST.BitXor    -> VInt  <$> intOp  xor    l r
 
-  E.LShift    -> VInt  <$> intOp  shiftL l r
-  E.RShift    -> VInt  <$> intOp  shiftR l r
+  AST.LShift    -> VInt  <$> intOp  shiftL l r
+  AST.RShift    -> VInt  <$> intOp  shiftR l r
 
 numOp :: (Int -> Int -> Value) -> (Float -> Float -> Value) -> Value -> Value -> IO Value
 numOp ifn ffn l r = do

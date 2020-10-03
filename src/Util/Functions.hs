@@ -1,5 +1,6 @@
 module Util.Functions where
 
+import Data.Set (Set)
 import qualified Data.Set as Set
 
 import Data.List (intercalate)
@@ -33,3 +34,6 @@ duplicates = dups Set.empty Set.empty
           if Set.member x seen
           then dups seen                (Set.insert x ds) xs
           else dups (Set.insert x seen) ds                xs
+
+unions :: (Ord a) => [Set a] -> Set a
+unions = foldl Set.union Set.empty

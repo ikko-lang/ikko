@@ -2,6 +2,7 @@ module FirstPass where
 
 
 import Control.Monad (foldM, when, unless)
+
 import Data.Foldable (forM_)
 import Data.Map (Map)
 import qualified Data.Map as Map
@@ -9,59 +10,74 @@ import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Maybe (mapMaybe, fromMaybe)
 
-import AST.Annotation (Annotated, Annotation, getLocation, mapType)
-import AST.Declaration
-  ( Declaration(..)
-  , getDeclaredName )
-import qualified AST.Declaration as D
-import qualified AST.Expression as E
-import qualified AST.Statement as S
-import AST.Type ( defName, defGenerics )
-import qualified AST.Type as T
+import AST.Annotation
+  ( Annotated
+  , Annotation
+  , getLocation
+  , mapType
+  )
+
+import AST
+  ( defGenerics
+  , gatherTypeVars
+  , defName
+  , getDeclaredName
+  , predClass
+  , predType
+  )
+import qualified AST
+
 import Errors
   ( Error(..)
-  , Result )
+  , Result
+  )
+
 import Types
-  ( Scheme(..)
-  , Type(..)
-  , Types(..)
-  , Kind(..)
-  , Substitution
-  , Qualified(..)
-  , Predicate(..)
-  , Inst
-  , Class(..)
+  ( Class(..)
   , ClassEnv(..)
   , Environment(..)
+  , Inst
+  , Kind(..)
+  , Predicate(..)
+  , Qualified(..)
+  , Scheme(..)
+  , Substitution
+  , Type(..)
+  , Types(..)
   , apply
+  , applyTypes
   , envInsert
+  , kindN
+  , makeFuncType
+  , makeSub
+  , makeVar
   , simpleType
   , simpleVar
-  , makeSub
-  , makeFuncType
-  , makeVar
-  , applyTypes
-  , kindN
-  , tInt
-  , tFloat
   , tBool
   , tChar
+  , tFloat
+  , tInt
   , tString
-  , tUnit )
+  , tUnit
+  )
+
 import Util.Functions
-import Util.Graph (nodesInCycle)
+
+import Util.Graph
+  ( nodesInCycle
+  )
 
 
-type DeclarationT     = D.Declaration     Annotation
-type ExpressionT      = E.Expression      Annotation
-type FileT            = D.File            Annotation
-type MatchCaseT       = S.MatchCase       Annotation
-type MatchExpressionT = S.MatchExpression Annotation
-type StatementT       = S.Statement       Annotation
-type TypeDeclT        = T.TypeDecl        Annotation
-type TypeDefT         = T.TypeDef         Annotation
-type ClassMethodT     = T.ClassMethod     Annotation
-type PredicateT       = T.Predicate       Annotation
+type DeclarationT     = AST.Declaration     Annotation
+type ExpressionT      = AST.Expression      Annotation
+type FileT            = AST.File            Annotation
+type MatchCaseT       = AST.MatchCase       Annotation
+type MatchExpressionT = AST.MatchExpression Annotation
+type StatementT       = AST.Statement       Annotation
+type TypeDeclT        = AST.TypeDecl        Annotation
+type TypeDefT         = AST.TypeDef         Annotation
+type ClassMethodT     = AST.ClassMethod     Annotation
+type PredicateT       = AST.Predicate       Annotation
 
 
 data Module =
@@ -197,22 +213,22 @@ addMethods e cd =
   in foldl (addMethod classPred) e (cdMethods cd)
 
 addMethod :: Predicate -> Environment -> ClassMethodT -> Environment
-addMethod p env (T.ClassMethod _ name funcType)  =
+addMethod p env (AST.ClassMethod _ name funcType)  =
   let sch = convertMethodType p funcType
   in envInsert name sch env
 
 convertMethodType :: Predicate -> TypeDeclT -> Scheme
 convertMethodType p tdecl =
-  let typeVars = T.gatherTypeVars tdecl
+  let typeVars = gatherTypeVars tdecl
       gens = Set.toList typeVars
       gensWithSelf = "Self" : gens
       kinds = replicate (length gensWithSelf) Star
 
       (predicates, args, ret) = case tdecl of
-        (T.Function _ ps a r) -> (ps, a, r)
+        (AST.TFunction _ ps a r) -> (ps, a, r)
         _                     -> error "compiler bug: should only see a function type"
       preds = p : map convertPredicate predicates
-      fn = T.Function [] [] args ret
+      fn = AST.TFunction [] [] args ret
       sub = Map.fromList $ zip (map simpleVar gensWithSelf) [TGen i Star | i <- [0..]]
       typ = case convertDecl sub fn of
         Right t  -> t
@@ -221,7 +237,7 @@ convertMethodType p tdecl =
 
 convertPredicate :: PredicateT -> Predicate
 convertPredicate pt =
-  Pred (T.predClass pt) $ simpleType (T.predType pt)
+  Pred (predClass pt) $ simpleType (predType pt)
 
 makeInst :: String -> Type -> Inst
 makeInst c t = Qual [] (Pred c t)
@@ -256,7 +272,7 @@ data ClassDefinition
 
 classMethodNames :: ClassDefinition -> [String]
 classMethodNames cdef =
-  [name | T.ClassMethod _ name _ <- cdMethods cdef]
+  [name | AST.ClassMethod _ name _ <- cdMethods cdef]
 
 data InstanceDefinition
   = InstanceDefinition
@@ -289,7 +305,7 @@ checkClass cdef = do
   let methods = cdMethods cdef
   when ("Self" `elem` cdSupers cdef) $
     Left $ MalformedType ("the class " ++ name ++ " should not extend Self")
-  ensureUniqueMethodNames name [n | T.ClassMethod _ n _ <- methods]
+  ensureUniqueMethodNames name [n | AST.ClassMethod _ n _ <- methods]
   mapM_ (checkMethodType name) methods
 
 ensureUniqueMethodNames :: String -> [String] -> Result ()
@@ -304,9 +320,9 @@ ensureUniqueMethodNames className methodNames =
 --  * the Self type is used at least once
 --  * the class's name isn't otherwise used directly (except in predicates)
 checkMethodType :: String -> ClassMethodT -> Result ()
-checkMethodType className (T.ClassMethod _ name tdecl) = do
+checkMethodType className (AST.ClassMethod _ name tdecl) = do
   (argTs, retT) <- case tdecl of
-    T.Function _ _ps ats rt -> return (ats, rt)
+    AST.TFunction _ _ps ats rt -> return (ats, rt)
     _                       -> error "compiler bug"
   let allTs = retT : argTs
   let namesUsed = getNamesUsed allTs
@@ -322,20 +338,20 @@ checkMethodType className (T.ClassMethod _ name tdecl) = do
     Left $ MalformedType classNameMessage
 
 -- Get names of types, but not names in predicates
-getNamesUsed :: [T.TypeDecl a] -> Set T.Type
+getNamesUsed :: [AST.TypeDecl a] -> Set AST.Type
 getNamesUsed =
   foldl (\names decl -> Set.union names (getNames decl)) Set.empty
 
 -- TODO: Should this consider non-generic names in the type part of a predicate?
-getNames :: T.TypeDecl a -> Set T.Type
+getNames :: AST.TypeDecl a -> Set AST.Type
 getNames tdecl = case tdecl of
-  T.TypeName _ t        -> Set.singleton t
+  AST.TName _ t        -> Set.singleton t
   -- TODO: Filter out generics from child:
-  T.Generic _ _ tds     -> getNamesUsed tds
-  T.Function _ _ args r -> getNamesUsed (r : args)
-  T.Struct _ fields     -> getNamesUsed (map snd fields)
-  T.Enum _ options      -> getNamesUsed (concatMap (map snd . snd) options)
-  T.ClassDecl{}         -> error "should not have a class decl here"
+  AST.TGeneric _ _ tds     -> getNamesUsed tds
+  AST.TFunction _ _ args r -> getNamesUsed (r : args)
+  AST.TStruct _ fields     -> getNamesUsed (map snd fields)
+  AST.TEnum _ options      -> getNamesUsed (concatMap (map snd . snd) options)
+  AST.TClassDecl{}         -> error "should not have a class decl here"
 
 getTypedInstance :: Map String ClassDefinition -> InstanceDefinition -> Result [InstanceMethod]
 getTypedInstance classesMap idef = do
@@ -350,13 +366,13 @@ getTypedInstanceMethod cdef idef decl = do
   let name = getDeclaredName decl
   funcType <- case findMethod cdef name of
     Nothing                    -> Left $ ExtraInstanceMethod (idClass idef) [name]
-    Just (T.ClassMethod _ _ t) -> return t
+    Just (AST.ClassMethod _ _ t) -> return t
   return InstanceMethod { imName=name, imBody=decl, imMethodType=funcType, imInstanceDef=idef }
 
 findMethod :: ClassDefinition -> String -> Maybe ClassMethodT
 findMethod cdef name = findMethod' (cdMethods cdef)
   where findMethod' []                           = Nothing
-        findMethod' (x@(T.ClassMethod _ n _):xs) =
+        findMethod' (x@(AST.ClassMethod _ n _):xs) =
           if n == name then return x else findMethod' xs
 
 addInstance :: Map String ClassDefinition -> ClassEnv -> InstanceDefinition -> Result ClassEnv
@@ -386,7 +402,7 @@ checkInstanceDef idef cdef = do
   let classMethods = cdMethods cdef
   let instMethods = idMethods idef
 
-  let cMethodNames = Set.fromList [mname | T.ClassMethod _ mname _ <- classMethods]
+  let cMethodNames = Set.fromList [mname | AST.ClassMethod _ mname _ <- classMethods]
   let iMethodNames = Set.fromList $ map getDeclaredName instMethods
 
   let missingMethods = Set.difference iMethodNames cMethodNames
@@ -404,14 +420,14 @@ checkInstanceMethod className classMethods instMethod = do
   let methodName = getDeclaredName instMethod
 
   let methodType =
-        head [ mtype | T.ClassMethod _ mname mtype <- classMethods , mname == methodName ]
+        head [ mtype | AST.ClassMethod _ mname mtype <- classMethods , mname == methodName ]
 
   argTypes <- case methodType of
-    T.Function _ _ ts _ -> return ts
+    AST.TFunction _ _ ts _ -> return ts
     _                   -> error "invalid type on an instance method"
 
   methodArgs <- case instMethod of
-    D.Function _ _ _ args _ -> return args
+    AST.DFunction _ _ _ args _ -> return args
     _                       -> error "invalid declaration for an instance method"
 
   when (length argTypes /= length methodArgs) $
@@ -422,7 +438,7 @@ checkInstanceMethod className classMethods instMethod = do
 checkInstMethArgName :: String -> String -> (TypeDeclT, String) -> Result ()
 checkInstMethArgName className methodName (argT, argName) =
   let isSelfType = case argT of
-        T.TypeName _ typ -> typ == "Self"
+        AST.TName _ typ -> typ == "Self"
         _                -> False
       isSelfArg = argName == "self"
   in when (isSelfType /= isSelfArg)
@@ -446,18 +462,18 @@ hasMatchingInstance existing inst =
 gatherClasses :: FileT -> [ClassDefinition]
 gatherClasses declarations =
   [ ClassDefinition { cdName=getDeclaredName d, cdSupers=supers, cdMethods=methods }
-  | d@(D.TypeDef _ _ (T.ClassDecl _ supers methods)) <- declarations ]
+  | d@(AST.DTypeDef _ _ (AST.TClassDecl _ supers methods)) <- declarations ]
 
 gatherInstances :: FileT -> [InstanceDefinition]
 gatherInstances declarations =
   [ InstanceDefinition { idType=typ, idClass=cls, idPreds=preds, idMethods=methods }
-  | D.Instance _ cls typ preds methods <- declarations ]
+  | AST.DInstance _ cls typ preds methods <- declarations ]
 
 type DeclMap = Map String DeclarationT
 
 ensureDeclsAreUnique :: FileT -> Result DeclMap
 ensureDeclsAreUnique [] = return Map.empty
-ensureDeclsAreUnique (Instance{}:ds) = ensureDeclsAreUnique ds
+ensureDeclsAreUnique (AST.DInstance{}:ds) = ensureDeclsAreUnique ds
 ensureDeclsAreUnique (d:ds) = do
   rest <- ensureDeclsAreUnique ds
   let name = getDeclaredName d
@@ -498,7 +514,8 @@ checkTypeDefined definitions name =
 
 gatherConstructors :: FileT -> Result (Map String Constructor)
 gatherConstructors file =
-  makeConstructors [(def, decl) | (TypeDef _ def decl) <- file] Map.empty
+  let definitions = [(def, decl) | (AST.DTypeDef _ def decl) <- file]
+  in makeConstructors definitions Map.empty
 
 makeConstructors :: [(TypeDefT, TypeDeclT)] -> Map String Constructor -> Result (Map String Constructor)
 makeConstructors []         constrs = return constrs
@@ -516,11 +533,11 @@ makeConstructors ((t,d):ts) constrs = do
   let sub = makeSub $ zip (zipWith makeVar gens kinds) generalized
 
   constrs' <- case d of
-    T.TypeName{}         -> error "type aliases not supported yet"
-    T.Generic{}          -> error "type aliases not supported yet"
-    T.Function{}         -> error "type aliases not supported yet"
+    AST.TName{}         -> error "type aliases not supported yet"
+    AST.TGeneric{}          -> error "type aliases not supported yet"
+    AST.TFunction{}         -> error "type aliases not supported yet"
 
-    T.Struct   _ fields  -> do
+    AST.TStruct   _ fields  -> do
       let k = kindN $ length generalized
       let typ = applyTypes (TCon name k) generalized
 
@@ -536,14 +553,14 @@ makeConstructors ((t,d):ts) constrs = do
     -- An enum like `Maybe T = Just T | Nothing` would need three constructors
     -- One for finding the type of `Maybe<T>` in type declarations, and
     -- one for each of `Just{val: val}` and `Nothing{}` constructors in the code.
-    T.Enum     _ options ->
+    AST.TEnum     _ options ->
       let k = kindN $ length generalized
           typ = applyTypes (TCon name k) generalized
           sch = Scheme kinds (Qual [] $ makeFuncType [] typ)
           ctor = Constructor { ctorFields=[], ctorType=sch }
       in addEnumOptions kinds generalized sub typ options (Map.insert name ctor constrs)
 
-    T.ClassDecl{}        ->
+    AST.TClassDecl{}        ->
       -- Classes don't contribute constructors
       return constrs
   makeConstructors ts constrs'
@@ -570,27 +587,27 @@ addEnumOptions kinds generalized sub typ ((n,t):os) constrs = do
 
 convertDecl :: Substitution -> TypeDeclT -> Result Type
 convertDecl sub decl = case decl of
-  T.TypeName _ tname      ->
+  AST.TName _ tname      ->
     return $ fromMaybe (simpleType tname) $ Map.lookup (simpleVar tname) sub
-  T.Generic  _ tname gens -> do
+  AST.TGeneric  _ tname gens -> do
     genTypes <- mapM (convertDecl sub) gens
     let k = kindN $ length gens
     return $ applyTypes (TCon tname k) genTypes
-  T.Function _ preds argTs retT -> do
+  AST.TFunction _ preds argTs retT -> do
     argTypes <- mapM (convertDecl sub) argTs
     retType <- convertDecl sub retT
     case preds of
       [] -> return $ makeFuncType argTypes retType
       ps -> error $ "didn't expect predicates here: " ++ show ps
-  T.Struct{}              ->
+  AST.TStruct{}              ->
     withLocations [decl] $ Left InvalidAnonStructure
-  T.Enum{}                ->
+  AST.TEnum{}                ->
     withLocations [decl] $ Left InvalidAnonStructure
-  T.ClassDecl{}           ->
+  AST.TClassDecl{}           ->
     withLocations [decl] $ Left InvalidAnonStructure
 
 convertDef :: TypeDefT -> Result Type
-convertDef (T.TypeDef _ name gens) = do
+convertDef (AST.TypeDef _ name gens) = do
   let dups = duplicates gens
   unless (null dups) $
     Left $ MalformedType $ "type variable used twice: " ++ show dups
@@ -607,42 +624,42 @@ gatherBindings decls =
   in foldM addBinding Map.empty binds
 
 checkReturns :: DeclarationT -> Result ()
-checkReturns TypeDef{} =
+checkReturns AST.DTypeDef{} =
   return ()
-checkReturns Let{} =
+checkReturns AST.DLet{} =
   return ()
-checkReturns Instance{} =
+checkReturns AST.DInstance{} =
   return ()
-checkReturns (Function _ name _ _ stmt) = do
+checkReturns (AST.DFunction _ name _ _ stmt) = do
   _ <- checkStmtsReturn name Never [stmt]
   return ()
 
 checkDupVars :: DeclarationT -> Result ()
 checkDupVars decl = case decl of
-  TypeDef{}          -> return ()
-  Instance{}         -> return ()
-  Let _ _ _ e        -> checkDupVarsExpr e
-  Function _ _ _ _ s -> checkDupVarsStmt s
+  AST.DTypeDef{}          -> return ()
+  AST.DInstance{}         -> return ()
+  AST.DLet _ _ _ e        -> checkDupVarsExpr e
+  AST.DFunction _ _ _ _ s -> checkDupVarsStmt s
 
 
 checkDupVarsStmt :: StatementT -> Result ()
 checkDupVarsStmt stmt = case stmt of
-  S.Return _ me      -> forM_ me checkDupVarsExpr
-  S.Let _ _ _ e      -> checkDupVarsExpr e
-  S.Assign _ _ e     -> checkDupVarsExpr e
-  S.Block _ stmts    -> checkDupVarsBlock stmts Set.empty
-  S.Expr _ e         -> checkDupVarsExpr e
-  S.If _ e stmts els -> do
+  AST.Return _ me      -> forM_ me checkDupVarsExpr
+  AST.Let _ _ _ e      -> checkDupVarsExpr e
+  AST.Assign _ _ e     -> checkDupVarsExpr e
+  AST.Block _ stmts    -> checkDupVarsBlock stmts Set.empty
+  AST.Expr _ e         -> checkDupVarsExpr e
+  AST.If _ e stmts els -> do
     checkDupVarsExpr e
     checkDupVarsBlock stmts Set.empty
     forM_ els checkDupVarsStmt
-  S.While _ e stmts  -> do
+  AST.While _ e stmts  -> do
     checkDupVarsExpr e
     checkDupVarsBlock stmts Set.empty
-  S.Match _ e cases  -> do
+  AST.Match _ e cases  -> do
     checkDupVarsExpr e
     mapM_ checkDupVarsCase cases
-  S.Pass _           -> return ()
+  AST.Pass _           -> return ()
 
 
 checkDupVarsBlock :: [StatementT] -> Set String -> Result ()
@@ -650,7 +667,7 @@ checkDupVarsBlock [] _ = return ()
 checkDupVarsBlock (s:ss) declared = do
   checkDupVarsStmt s
   case s of
-    S.Let _ name _ _ ->
+    AST.Let _ name _ _ ->
       if Set.member name declared
       then withLocations [s] $ Left $ DuplicateBinding name
       else checkDupVarsBlock ss (Set.insert name declared)
@@ -658,7 +675,7 @@ checkDupVarsBlock (s:ss) declared = do
       return ()
 
 checkDupVarsCase :: MatchCaseT -> Result ()
-checkDupVarsCase (S.MatchCase me st) = do
+checkDupVarsCase (AST.MatchCase me st) = do
   checkDupVarsME me
   checkDupVarsStmt st
 
@@ -668,9 +685,9 @@ checkDupVarsME me =
 
 gatherMEBindings :: MatchExpressionT -> [(String, MatchExpressionT)]
 gatherMEBindings me = case me of
-  S.MatchAnything _        -> []
-  S.MatchVariable _ s      -> [(s, me)]
-  S.MatchStructure _ _ mes ->
+  AST.MatchAnything _        -> []
+  AST.MatchVariable _ s      -> [(s, me)]
+  AST.MatchStructure _ _ mes ->
     concatMap gatherMEBindings mes
 
 checkDuplicateBindings :: (Annotated ast) => [(String, ast Annotation)] -> Set String -> Result ()
@@ -696,16 +713,16 @@ checkStmtsReturn fname prevReturns stmts =
    _ -> case stmts of
      []     -> return prevReturns
      (s:ss) -> case s of
-       S.Return _ _ ->
+       AST.Return _ _ ->
          checkStmtsReturn fname Always ss
-       S.Block _ blk -> do
+       AST.Block _ blk -> do
          returns <- checkStmtsReturn fname prevReturns blk
          checkStmtsReturn fname returns ss
-       S.If _ _ thenCase Nothing -> do
+       AST.If _ _ thenCase Nothing -> do
          returns <- checkStmtsReturn fname prevReturns thenCase
          let actuallyReturns = if returns == Always then Sometimes else returns
          checkStmtsReturn fname actuallyReturns ss
-       S.If _ _ thenCase (Just elseCase) -> do
+       AST.If _ _ thenCase (Just elseCase) -> do
          thenReturns <- checkStmtsReturn fname prevReturns thenCase
          elseReturns <- checkStmtsReturn fname prevReturns [elseCase]
          let actuallyReturns = case (thenReturns, elseReturns) of
@@ -713,7 +730,7 @@ checkStmtsReturn fname prevReturns stmts =
                (Never,  Never)  -> Never
                (_,      _)      -> Sometimes
          checkStmtsReturn fname actuallyReturns ss
-       S.While _ _ whileBody -> do
+       AST.While _ _ whileBody -> do
          whileReturns <- checkStmtsReturn fname prevReturns whileBody
          let actuallyReturns = if whileReturns == Always then Sometimes else whileReturns
          checkStmtsReturn fname actuallyReturns ss
@@ -727,8 +744,8 @@ data DoesReturn
   deriving (Eq, Show)
 
 isTypeDecl :: DeclarationT -> Bool
-isTypeDecl TypeDef{} = True
-isTypeDecl _         = False
+isTypeDecl AST.DTypeDef{} = True
+isTypeDecl _              = False
 
 -- TODO: add the ability to combine multiple files into a module,
 --   but check imports on a per-file basis
