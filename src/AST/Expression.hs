@@ -4,6 +4,7 @@ module AST.Expression where
 
 import AST.Annotation (Annotated, emitAnnotation)
 import AST.Type (Type)
+import AST.Statement (Statement)
 
 import Util.PrettyPrint (Render, PrettyPrint, PrettyPrinter, printLines)
 import Util.Functions (commaSep)
@@ -55,6 +56,8 @@ data Expression a
   | Cast    a Type (Expression a)
   | Var     a String
   | Access  a (Expression a) String
+  -- TODO: Think about allowing a name and type
+  | Lambda  a [String] (Statement a) -- args, body
   deriving (Eq, Show, Functor, Foldable, Traversable)
 
 instance Annotated Expression where
