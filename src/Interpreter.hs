@@ -87,8 +87,10 @@ interpretExpr scope expr = case expr of
   AST.Access _ ex field -> do
     val <- interpretExpr scope ex
     accessField val field
-  AST.Lambda _ _args _ret ->
-    error "TODO: lambda"
+  AST.Lambda _ args ret -> do
+    let func = Function args ret
+    let closure = VClosure scope func
+    return closure
 
 data StmtResult
   = Returned Value
