@@ -3,14 +3,14 @@
 module Parser where
 
 import Control.Monad (when)
-import Data.Functor (($>))
 import Data.Functor.Identity (runIdentity)
 import Data.Maybe (isNothing, fromMaybe)
 
-import Debug.Trace (traceM)
-import Control.Monad.Reader (ask, MonadReader)
-import Util.PrettyPrint (prettyPrint, PrettyPrint)
-import qualified Util.Functions as Fns
+-- import Debug.Trace (traceM)
+import Util.PrettyPrint
+  ( PrettyPrint
+  , prettyPrint
+  )
 
 import Text.Parsec
 import Text.Parsec.Pos (sourceLine, sourceColumn, sourceName)
@@ -18,7 +18,6 @@ import Text.Parsec.Indent
   ( IndentParser
   , IndentParserT
   , IndentT
-  , block
   , checkIndent
   , indented
   , runIndentParserT
@@ -79,9 +78,8 @@ topLevelDecls = do
   return $ decl : decls
 
 declarationParser :: Parser Declaration
-declarationParser = do
-  result <- withPos $ addLocation $ choice [letDeclaration, funcDeclaration, typeDeclaration, instanceDeclaration]
-  return result
+declarationParser =
+  withPos $ addLocation $ choice [letDeclaration, funcDeclaration, typeDeclaration, instanceDeclaration]
 
 letDeclaration :: Parser Declaration
 letDeclaration = do
@@ -126,9 +124,7 @@ funcDeclaration = do
     whereClauseParser
   mtype <- assembleFunctionType argTypes retType mpredicates
   char_ ':'
-  fnBlock <- blockStatement
-  -- AST.DFunction [] name mtype args <$> blockStatement
-  return $ AST.DFunction [] name mtype args fnBlock
+  AST.DFunction [] name mtype args <$> blockStatement
 
 
 whereClauseParser :: Parser [Predicate]
@@ -263,9 +259,7 @@ statementParser = do
         passStatement,
         returnStatement, letStatement, ifStatement, whileStatement,
         matchStatement, assignStatement, exprStatement]
-  s <- choice $ map (try . addLocation . withPos) stmtTypes
-  -- traceM $ "finished statement: " ++ prettyPrint s
-  return s
+  choice $ map (try . addLocation . withPos) stmtTypes
 
 passStatement :: Parser Statement
 passStatement = do
@@ -339,7 +333,7 @@ statementSep = eof <|> do
   return ()
 
 exprStatement :: Parser Statement
-exprStatement = do
+exprStatement =
   AST.Expr [] <$> expressionParser
 
 ifStatement :: Parser Statement

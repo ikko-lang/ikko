@@ -377,7 +377,7 @@ instance (Render a) => PrettyPrint (Expression a) where
           Access _ e1 name    -> do
             e1S <- printLines e1
             return $ e1S ++ "." ++ name
-          Lambda _ args body  -> do
+          Lambda _ args body  ->
             return $ "fn(" ++ commaSep args ++ "):\n" ++ prettyPrint body
 
     emitAnnotation expr rendered
