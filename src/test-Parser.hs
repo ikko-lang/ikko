@@ -128,7 +128,7 @@ tests =
      (eBinary AST.Eq (eVal (intVal 1)) (eVal (intVal 1)))
      (eBinary AST.Less (eVal (intVal 2)) (eVal (intVal 3))))
   , expectParses typeNameParser "Int" "Int"
-  , expectParsesA typeDefParser "struct:\n  a Int\n  b String\n"
+  , expectParsesA (withPos typeDefParser) "struct:\n  a Int\n  b String\n"
     (AST.TStruct [] [("a", intT), ("b", stringT)])
   , testEnumType
   , testEnumType2
@@ -191,6 +191,9 @@ tests =
   , testParsingFunc2
   , testParsingTypedFunction
   , testParsingTypeDecl
+  , testParsingLambda
+  , testParsingLambdaStatement
+  , testParsingLambdaInFunction
   ]
 
 testEnumType :: Test
@@ -202,18 +205,18 @@ testEnumType =
 
 testEnumType2 :: Test
 testEnumType2 =
-  let text = "enum:\n TInt\n TFloat\n"
-      expected = AST.TEnum [] [ ("TInt", [])
-                           , ("TFloat", []) ]
+  let text = "enum:\n IntT\n FloatT\n"
+      expected = AST.TEnum [] [ ("IntT", [])
+                              , ("FloatT", []) ]
   in expectParsesA typeDefParser text expected
 
 testParsingBlock :: Test
 testParsingBlock =
-  let text = "let a1 = True\nreturn a1  \n"
+  let text = "\n  let a1 = True\n  return a1  \n"
       expected = sBlock [ sLet "a1" (eVal $ boolVal True)
                          , sReturn (Just $ eVar "a1")
                          ]
-  in expectParsesA blockStatement' text expected
+  in expectParsesA blockStatement text expected
 
 testParsingIf :: Test
 testParsingIf =
@@ -259,6 +262,33 @@ testParsingTypeDecl =
       expected = AST.DTypeDef [] def declaredType
   in expectParsesA declarationParser text expected
 
+testParsingLambda :: Test
+testParsingLambda =
+  let text = "fn(a):\n  return a\n"
+      returnStmt = sReturn $ Just $ eVar "a"
+      body = AST.Block [] [returnStmt]
+      expected = AST.Lambda [] ["a"] body
+  in expectParsesA expr text expected
+
+testParsingLambdaStatement :: Test
+testParsingLambdaStatement =
+  let text = "let foo = fn(a):\n  return a\n"
+      returnStmt = sReturn $ Just $ eVar "a"
+      body = AST.Block [] [returnStmt]
+      lambda = AST.Lambda [] ["a"] body
+      expected = AST.Let [] "foo" Nothing lambda
+  in expectParsesA (withPos statementParser) text expected
+
+testParsingLambdaInFunction :: Test
+testParsingLambdaInFunction =
+  let text = "fn foo():\n  let f = fn(a):\n    return a\n  return f\n"
+      body = AST.Block [] [sReturn $ Just $ eVar "a"]
+      lambda = AST.Lambda [] ["a"] body
+      letStmt = AST.Let [] "f" Nothing lambda
+      returnStmt = sReturn $ Just $ eVar "f"
+      expected = AST.DFunction [] "foo" Nothing [] (sBlock [letStmt, returnStmt])
+  in expectParsesA declarationParser text expected
+
 ---- Utilities ----
 
 expectParsesA ::
@@ -275,9 +305,12 @@ expectParses = expectParses' id
 expectParses' :: (Eq a, Show a) => (a -> a) -> Parser a -> String -> a -> Test
 expectParses' postprocess parser text expected =
   TestCase $
-  case parse (parser <* eof) text of
+  case parse (parser <* anyWhitespace <* eof) text of
    (Left err) ->
-     assertFailure $  "failed parsing ''" ++ text ++ "'', error parsing (" ++ show err ++ ")"
+     let quoted = if length (lines text) > 1
+                  then "''\n" ++ text ++ "''"
+                  else "''" ++ text ++ "''"
+     in assertFailure $  "failed parsing " ++ quoted ++ ", error parsing (" ++ show err ++ ")"
    (Right result) ->
      let message =
            concat 

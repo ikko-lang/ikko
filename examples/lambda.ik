@@ -1,4 +1,4 @@
-fn multiples_of(i Int) fn() Int
+fn multiples_of(i Int) fn() Int:
     let x = 0
     let f = fn():
         let y = x

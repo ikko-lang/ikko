@@ -7,9 +7,25 @@ import Data.Functor (($>))
 import Data.Functor.Identity (runIdentity)
 import Data.Maybe (isNothing, fromMaybe)
 
+import Debug.Trace (traceM)
+import Control.Monad.Reader (ask, MonadReader)
+import Util.PrettyPrint (prettyPrint, PrettyPrint)
+import qualified Util.Functions as Fns
+
 import Text.Parsec
 import Text.Parsec.Pos (sourceLine, sourceColumn, sourceName)
 import Text.Parsec.Indent
+  ( IndentParser
+  , IndentParserT
+  , IndentT
+  , block
+  , checkIndent
+  , indented
+  , runIndentParserT
+  , topLevel
+  , withPos
+  )
+import qualified Text.Parsec.Indent.Explicit as Explicit
 
 import AST.Annotation (Annotated, Annotation)
 import qualified AST.Annotation as Ann
@@ -48,21 +64,29 @@ parseFile fileName content =
 fileParser :: Parser File
 fileParser = do
   anyWhitespace
-  decls <- many (topLevel *> declarationParser)
+  decls <- topLevelDecls <|> return [] -- handle empty files
   anyWhitespace
   _ <- eof
   return decls
 
+topLevelDecls :: Parser File
+topLevelDecls = do
+  decl <- topLevel >> declarationParser
+  decls <- many $ try $ do
+    statementSep
+    topLevel
+    declarationParser
+  return $ decl : decls
+
 declarationParser :: Parser Declaration
-declarationParser =
-  withPos $ addLocation $ choice [letDeclaration, funcDeclaration, typeDeclaration, instanceDeclaration]
+declarationParser = do
+  result <- withPos $ addLocation $ choice [letDeclaration, funcDeclaration, typeDeclaration, instanceDeclaration]
+  return result
 
 letDeclaration :: Parser Declaration
 letDeclaration = do
   (name, mtype) <- letName
-  result <- AST.DLet [] name mtype <$> expressionParser
-  statementSep
-  return result
+  AST.DLet [] name mtype <$> expressionParser
 
 letName :: Parser (String, Maybe TypeDecl)
 letName = do
@@ -102,8 +126,9 @@ funcDeclaration = do
     whereClauseParser
   mtype <- assembleFunctionType argTypes retType mpredicates
   char_ ':'
-  statementSep
-  AST.DFunction [] name mtype args <$> blockStatement
+  fnBlock <- blockStatement
+  -- AST.DFunction [] name mtype args <$> blockStatement
+  return $ AST.DFunction [] name mtype args fnBlock
 
 
 whereClauseParser :: Parser [Predicate]
@@ -199,9 +224,8 @@ instanceDeclaration = do
   let predicates = fromMaybe [] mpredicates
 
   char_ ':'
-  statementSep
 
-  AST.DInstance [] cls tdef predicates <$> block declarationParser
+  AST.DInstance [] cls tdef predicates <$> indentedBlock declarationParser
 
 
 type ArgDecls = [(String, Maybe TypeDecl)]
@@ -234,16 +258,18 @@ nextArgDecl = do
 
 statementParser :: Parser Statement
 statementParser = do
+  -- traceM "starting a statement"
   let stmtTypes = [
         passStatement,
         returnStatement, letStatement, ifStatement, whileStatement,
         matchStatement, assignStatement, exprStatement]
-  addLocation $ withPos $ choice $ map try stmtTypes
+  s <- choice $ map (try . addLocation . withPos) stmtTypes
+  -- traceM $ "finished statement: " ++ prettyPrint s
+  return s
 
 passStatement :: Parser Statement
 passStatement = do
   string_ "pass"
-  statementSep
   return $ AST.Pass []
 
 returnStatement :: Parser Statement
@@ -252,24 +278,19 @@ returnStatement = do
   e <- optionMaybe $ do
     any1LinearWhitespace
     expressionParser
-  statementSep
   return $ AST.Return [] e
 
 letStatement :: Parser Statement
 letStatement = do
   (name, mtype) <- letName
-  l <- AST.Let [] name mtype <$> expressionParser
-  statementSep
-  return l
+  AST.Let [] name mtype <$> expressionParser
 
 assignStatement :: Parser Statement
 assignStatement = do
   name <- valueName
   names <- try (assignFields [name]) <|> return [name]
   equalsWhitespace
-  a <- AST.Assign [] names <$> expressionParser
-  statementSep
-  return a
+  AST.Assign [] names <$> expressionParser
 
 assignFields :: [String] -> Parser [String]
 assignFields lefts = do
@@ -278,13 +299,37 @@ assignFields lefts = do
   let names = right : lefts
   try (assignFields names) <|> return (reverse names)
 
+-- Includes previous and internal statement separators
 blockStatement :: Parser Statement
 blockStatement =
-  indented >> blockStatement'
+  AST.Block [] <$> indentedBlock statementParser
 
-blockStatement' :: Parser Statement
-blockStatement' =
-  fmap (AST.Block []) (block statementParser)
+{-
+seeNext label n = do
+  s <- getParserState
+  pos <- ask
+  let out = take n (stateInput s)
+  traceM $ label ++ ":\n--> " ++ show out ++ "        " ++ show pos ++ "\n"
+  return ()
+-}
+
+indentedBlock :: Parser a -> Parser [a]
+indentedBlock p = do
+  statementSep
+  -- require that this be more indented than the previous paragraph
+  indented
+  withPos $ do
+    -- get the current indentation
+    ref <- Explicit.indentation
+    -- parse the first item in the block
+    first <- p
+    -- parse any remaining items in the block, requiring that they be at the same
+    -- indentation as the first
+    rest <- many $ try $ do
+      statementSep
+      Explicit.checkIndent ref
+      p
+    return $ first : rest
 
 statementSep :: Parser ()
 statementSep = eof <|> do
@@ -295,9 +340,7 @@ statementSep = eof <|> do
 
 exprStatement :: Parser Statement
 exprStatement = do
-  e <- AST.Expr [] <$> expressionParser
-  statementSep
-  return e
+  AST.Expr [] <$> expressionParser
 
 ifStatement :: Parser Statement
 ifStatement = do
@@ -309,8 +352,9 @@ ifStatement = do
 
 elseBlock :: Parser Statement
 elseBlock = do
+  statementSep
   _ <- checkIndent *> string "else"
-  (any1Whitespace *> ifStatement) <|> (char ':' *> statementSep *> blockStatement)
+  (any1Whitespace *> ifStatement) <|> (char ':' *> blockStatement)
 
 whileStatement :: Parser Statement
 whileStatement = do
@@ -324,7 +368,6 @@ testedBlock = do
   any1Whitespace
   test <- expressionParser
   char_ ':'
-  statementSep
   body <- blockStatement
   return (test, body)
 
@@ -334,14 +377,12 @@ matchStatement = do
   any1Whitespace
   value <- expressionParser
   char_ ':'
-  statementSep
-  AST.Match [] value <$> block matchCaseParser
+  AST.Match [] value <$> indentedBlock matchCaseParser
 
 matchCaseParser :: Parser MatchCase
 matchCaseParser = do
   e <- matchExpression
   char_ ':'
-  statementSep
   AST.MatchCase e <$> blockStatement
 
 matchExpression :: Parser MatchExpression
@@ -383,11 +424,17 @@ matchExpressionsNext = do
 
 -- Binary expressions are handled at this level
 expressionParser :: Parser Expression
-expressionParser = unfoldParts <$> readBinExprParts
+expressionParser = do
+  -- traceM "starting expressionParser"
+  parts <- readBinExprParts
+  let unfolded = unfoldParts parts
+  -- traceM $ "unfolded to " ++ prettyPrint unfolded
+  return unfolded
 
 readBinExprParts :: Parser ([Expression], [BinOp])
 readBinExprParts = do
   e <- expr
+  -- traceM $ "Done reading that expression: " ++ ppOrShow e
   anyLinearWhitespace
   parts <- many $ try $ do
     op <- opParser
@@ -397,6 +444,12 @@ readBinExprParts = do
     return (op, e')
   let (ops, es) = unzip parts
   return (e : es, ops)
+
+
+ppOrShow :: (Show a, PrettyPrint a) => a -> String
+ppOrShow x =
+  let printed = prettyPrint x
+  in if null printed then show x else printed
 
 
 unfoldParts :: ([Expression], [BinOp]) -> Expression
@@ -432,7 +485,7 @@ precOrder =
 
 expr :: Parser Expression
 expr = do
-  let options = [parenExpr, castExpr, valueExpr, unaryExpr, callExpr, varExpr]
+  let options = [parenExpr, castExpr, fnExpr, valueExpr, unaryExpr, callExpr, varExpr]
   e <- addLocation $ choice $ map try options
   try (addLocation $ accessExpr e) <|> return e
 
@@ -494,6 +547,43 @@ parenExpr' = do
   anyWhitespace
   char_ ')'
   return ex
+
+-- To think about: Is there any way this could allow function expressions inside of parens?
+fnExpr :: Parser Expression
+fnExpr = do
+  -- traceM "fnExpr"
+  args <- fnExprHeader
+  AST.Lambda [] args <$> blockStatement
+
+-- parses e.g. `fn(a, b, c):`, returning the arg names
+fnExprHeader :: Parser [String]
+fnExprHeader = do
+  string_ "fn"
+  anyLinearWhitespace
+  char_ '('
+  anyLinearWhitespace
+  args <- funcArgNames
+  char_ ':'
+  return args
+
+funcArgNames :: Parser [String]
+funcArgNames = funcArgsEnd <|> funcArgsNext
+
+funcArgsEnd :: Parser [String]
+funcArgsEnd = do
+  char_ ')'
+  return []
+
+funcArgsNext :: Parser [String]
+funcArgsNext = do
+  name <- valueName
+  anyLinearWhitespace
+  let remainingArgs = do
+        char_ ','
+        anyLinearWhitespace
+        funcArgsNext
+  rest <- funcArgsEnd <|> remainingArgs
+  return $ name : rest
 
 varExpr :: Parser Expression
 varExpr = AST.Var [] <$> valueName
@@ -636,37 +726,30 @@ typeNameOrVar = addLocation $ tryAll [namedType, typeVariable]
 enumTypeParser :: Parser TypeDecl
 enumTypeParser = do
   string_ "enum:"
-  statementSep
-  options <- block enumField
+  options <- indentedBlock enumField
   return $ AST.TEnum [] options
-
-enumHeader :: Parser String
-enumHeader = string "enum:" <* statementSep
 
 enumField :: Parser (String, EnumOption)
 enumField = withPos $ do
   name <- typeName
-  fields <- enumOptionFields <|> (statementSep $> [])
-  return (name, fields)
+  fields <- optionMaybe $ try enumOptionFields
+  return (name, fromMaybe [] fields)
 
 enumOptionFields :: Parser [(String, TypeDecl)]
 enumOptionFields = do
   char_ ':'
-  statementSep
-  block structField
+  indentedBlock structField
 
 structTypeParser :: Parser TypeDecl
 structTypeParser = do
   string_ "struct:"
-  statementSep
-  AST.TStruct [] <$> block structField
+  AST.TStruct [] <$> indentedBlock structField
 
 structField :: Parser (String, TypeDecl)
 structField = do
   name <- valueName
   any1LinearWhitespace
   typ <- addLocation simpleTypeDefParser
-  statementSep
   return (name, typ)
 
 
@@ -693,8 +776,7 @@ classDefParser = do
   let superclasses = fromMaybe [] msupers
 
   char_ ':'
-  statementSep
-  AST.TClassDecl [] superclasses <$> block (addLocation classMethod)
+  AST.TClassDecl [] superclasses <$> indentedBlock (addLocation classMethod)
 
 classMethod :: Parser ClassMethod
 classMethod = do
@@ -714,8 +796,6 @@ classMethod = do
     any1Whitespace
     whereClauseParser
   let predicates = fromMaybe [] mpredicates
-
-  statementSep
 
   let typ = AST.TFunction [] predicates argTypes retType
   return $ AST.ClassMethod [] name typ

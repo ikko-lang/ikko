@@ -45,8 +45,9 @@ prettyPrint x = evalState (runPrint x) startingState
 
 runPrint :: (PrettyPrint a) => a -> PrettyPrinter String
 runPrint x = do
-  _ <- printLines x
-  getPrinted
+  leading <- printLines x
+  printed <- getPrinted
+  return (leading ++ printed)
 
 class PrettyPrint a where
   -- Finished lines are emitted with writeLine,

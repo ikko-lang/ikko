@@ -22,6 +22,7 @@ import Util.PrettyPrint
   , decreaseIndent
   , increaseIndent
   , printLines
+  , prettyPrint
   , render
   , writeComment
   , writeLine
@@ -377,9 +378,7 @@ instance (Render a) => PrettyPrint (Expression a) where
             e1S <- printLines e1
             return $ e1S ++ "." ++ name
           Lambda _ args body  -> do
-            writeLine $ "fn(" ++ commaSep args ++ "):"
-            _ <- printLines body
-            return ""
+            return $ "fn(" ++ commaSep args ++ "):\n" ++ prettyPrint body
 
     emitAnnotation expr rendered
     return rendered
@@ -389,7 +388,7 @@ instance (Render a) => PrettyPrint (Value a) where
   printLines val = do
     rendered <- case  val of
                  StrVal    _ s ->
-                   return $ "\"" ++ show s ++ "\""
+                   return $ show s
                  BoolVal   _ b ->
                    return $ show b
                  IntVal    _ i ->
