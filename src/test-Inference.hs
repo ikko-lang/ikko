@@ -6,11 +6,12 @@ import qualified Data.Map as Map
 import Debug.Trace (trace)
 import Control.Monad (unless)
 
-import AST.Annotation (Annotated, Annotation, getType)
-import qualified AST.Declaration as D
-import qualified AST.Expression as E
-import qualified AST.Statement as S
-import qualified AST.Type as T
+import AST.Annotation
+  ( Annotated
+  , Annotation
+  , getType
+  )
+import qualified AST
 
 import FirstPass
   ( Module(..)
@@ -18,52 +19,55 @@ import FirstPass
   , startingEnv )
 
 import Types
-  ( Substitution
-  , Kind(..)
-  , Type(..)
-  , TyVar(..)
-  , Scheme(..)
+  ( Kind(..)
   , Predicate(..)
-  , Qualified(..)
   , QualType
-  , envLookup
+  , Qualified(..)
+  , Scheme(..)
+  , Substitution
+  , TyVar(..)
+  , Type(..)
+  , apply
   , applyTypes
   , asScheme
   , composeSubs
-  , apply
+  , emptySubstitution
+  , envLookup
   , kindN
-  , tUnit
-  , tInt
-  , tFloat
-  , tBool
-  , tString
-  , tUnit
   , makeFuncType
   , makeSub
-  , emptySubstitution
-  , unqualify
+  , showSub
   , simpleVar
-  , showSub )
+  , tBool
+  , tFloat
+  , tInt
+  , tString
+  , tUnit
+  , tUnit
+  , unqualify
+  )
 
 import Inference
 
 import Errors
   ( Error(..)
-  , Result )
+  , Result
+  )
 
 import Util.PrettyPrint
   ( PrettyPrint
   , prettyPrint
-  , render )
+  , render
+  )
 
 
-type DeclarationT     = D.Declaration     Annotation
-type ExpressionT      = E.Expression      Annotation
-type ValueT           = E.Value           Annotation
-type MatchCaseT       = S.MatchCase       Annotation
-type MatchExpressionT = S.MatchExpression Annotation
-type StatementT       = S.Statement       Annotation
-type TypeDeclT        = T.TypeDecl        Annotation
+type DeclarationT     = AST.Declaration     Annotation
+type ExpressionT      = AST.Expression      Annotation
+type ValueT           = AST.Value           Annotation
+type MatchCaseT       = AST.MatchCase       Annotation
+type MatchExpressionT = AST.MatchExpression Annotation
+type StatementT       = AST.Statement       Annotation
+type TypeDeclT        = AST.TypeDecl        Annotation
 
 assertRight :: Either a b -> Assertion
 assertRight (Left _) = assertFailure "expected Right, got Left"
@@ -215,9 +219,9 @@ recursiveUnification = do
 
 gettingExplicitType :: Assertion
 gettingExplicitType = do
-  let tdecl = T.Function [] [] [T.TypeName [] "a"] (T.TypeName [] "a")
-  let body = S.Block [] [S.Return [] $ Just $ E.Var [] "a"]
-  let decl = D.Function [] "identity" (Just tdecl) ["a"] body
+  let tdecl = AST.TFunction [] [] [AST.TName [] "a"] (AST.TName [] "a")
+  let body = AST.Block [] [AST.Return [] $ Just $ AST.Var [] "a"]
+  let decl = AST.DFunction [] "identity" (Just tdecl) ["a"] body
   let result = inferEmpty $ getExplicitType ("identity", decl)
   let sch = Scheme [Star] (Qual [] (TAp (TAp (TFunc 1 (kindN 2)) (TGen 0 Star)) (TGen 0 Star)))
   let expected = ("identity", sch)
@@ -251,34 +255,34 @@ simpleInference = do
   let intExpr = intVal 123
   assertExprTypesP intExpr (TVar (TyVar "_v0" Star)) [Pred "Num" $ TVar (TyVar "_v0" Star)]
 
-  let lessExpr = E.Binary [] E.Less (intVal 5) (intVal 6)
+  let lessExpr = AST.Binary [] AST.Less (intVal 5) (intVal 6)
   assertExprTypes tBool lessExpr
 
-  let notExpr = E.Unary [] E.BoolNot (boolVal True)
+  let notExpr = AST.Unary [] AST.BoolNot (boolVal True)
   assertExprTypes tBool notExpr
 
-  let parenExpr = E.Paren [] $ strVal "foo"
+  let parenExpr = AST.Paren [] $ strVal "foo"
   assertExprTypes tString parenExpr
 
-  let undefinedVar = E.Var [] "bad var"
+  let undefinedVar = AST.Var [] "bad var"
   assertExprFails undefinedVar
 
-  let badComparison = E.Binary [] E.Less (floatVal 5) (strVal "bar")
+  let badComparison = AST.Binary [] AST.Less (floatVal 5) (strVal "bar")
   assertExprFails badComparison
 
   -- 3()
-  let badCall = E.Call [] (floatVal 3) []
+  let badCall = AST.Call [] (floatVal 3) []
   assertExprFails badCall
 
   -- 3(5)
-  let badCall2 = E.Call [] (floatVal 3) [intVal 5]
+  let badCall2 = AST.Call [] (floatVal 3) [intVal 5]
   assertExprFails badCall2
 
 
 functionInference :: Test
 functionInference =
   -- shared definitions
-  let varX = E.Var [] "x"
+  let varX = AST.Var [] "x"
   in TestList
      [ labeled "f() {}" $ do
          let func0 = func "f" [] []
@@ -301,23 +305,23 @@ functionInference =
          assertDeclTypes type3 func3
 
      , labeled "f(x) { return x + 1.0; }" $ do
-         let func4 = func "f" ["x"] [returnJust $ E.Binary [] E.Plus varX (floatVal 1)]
+         let func4 = func "f" ["x"] [returnJust $ AST.Binary [] AST.Plus varX (floatVal 1)]
          let type4 = Qual [] $ makeFuncType [tFloat] tFloat
          assertDeclTypes type4 func4
 
      , labeled "f(x) { return x > 123.0; }" $ do
-         let func5 = func "f" ["x"] [returnJust $ E.Binary [] E.Less varX (floatVal 123.0)]
+         let func5 = func "f" ["x"] [returnJust $ AST.Binary [] AST.Less varX (floatVal 123.0)]
          let type5 = Qual [] $ makeFuncType [tFloat] tBool
          assertDeclTypes type5 func5
 
      , labeled "f(x) { return x && True; }" $ do
-         let funcBool = func "f" ["x"] [returnJust $ E.Binary [] E.BoolAnd varX (boolVal True)]
+         let funcBool = func "f" ["x"] [returnJust $ AST.Binary [] AST.BoolAnd varX (boolVal True)]
          let typeBool = Qual [] $ makeFuncType [tBool] tBool
          assertDeclTypes typeBool funcBool
 
      , labeled "f(x) { let y = x; return y; }" $ do
-         let letStmt = S.Let [] "y" Nothing (E.Var [] "x")
-         let returnStmt = returnJust (E.Var [] "y")
+         let letStmt = AST.Let [] "y" Nothing (AST.Var [] "x")
+         let returnStmt = returnJust (AST.Var [] "y")
          let funcLet = func "f" ["x"] [letStmt, returnStmt]
          let idType = Qual [] $ makeFuncType [tgenN 0] (tgenN 0)
          assertDeclTypes idType funcLet
@@ -329,12 +333,12 @@ functionInference =
 whileLoop :: Assertion
 whileLoop = do
   -- f(y) = let a = 1.0; while a < y { a = a * 2.0 }; return a
-  let aTo1 = S.Let [] "a" Nothing (floatVal 1)
-  let aLessY = E.Binary [] E.Less (E.Var [] "a") (E.Var [] "y")
-  let aTimes2 = E.Binary [] E.Times (E.Var [] "a") (floatVal 2)
-  let whileBody = S.Assign [] ["a"] aTimes2
-  let while = S.While [] aLessY [whileBody]
-  let returnA = returnJust $ E.Var [] "a"
+  let aTo1 = AST.Let [] "a" Nothing (floatVal 1)
+  let aLessY = AST.Binary [] AST.Less (AST.Var [] "a") (AST.Var [] "y")
+  let aTimes2 = AST.Binary [] AST.Times (AST.Var [] "a") (floatVal 2)
+  let whileBody = AST.Assign [] ["a"] aTimes2
+  let while = AST.While [] aLessY [whileBody]
+  let returnA = returnJust $ AST.Var [] "a"
   let func6 = func "f" ["y"] [aTo1, while, returnA]
   let type6 = Qual [] $ makeFuncType [tFloat] tFloat
   assertDeclTypes type6 func6
@@ -343,10 +347,10 @@ whileLoop = do
 ifElseReturn :: Assertion
 ifElseReturn = do
   -- f(x, y) = if x > y { return x; } else { return y; }
-  let test = E.Binary [] E.Greater (E.Var [] "x") (E.Var [] "y")
-  let returnX = returnJust $ E.Var [] "x"
-  let returnY = returnJust $ E.Var [] "y"
-  let ifStmt = S.If [] test [returnX] (Just returnY)
+  let test = AST.Binary [] AST.Greater (AST.Var [] "x") (AST.Var [] "y")
+  let returnX = returnJust $ AST.Var [] "x"
+  let returnY = returnJust $ AST.Var [] "y"
+  let ifStmt = AST.If [] test [returnX] (Just returnY)
   let func7 = func "f" ["x", "y"] [ifStmt]
   let tvar = tgenN 0
   let type7 = Qual [Pred "Ord" tvar] $ makeFuncType [tvar, tvar] tvar
@@ -356,10 +360,10 @@ ifElseReturn = do
 ifThenReturn :: Assertion
 ifThenReturn = do
   -- f(x, y) = if x > y { return x; }; return y;
-  let test = E.Binary [] E.Greater (E.Var [] "x") (E.Var [] "y")
-  let returnX = returnJust $ E.Var [] "x"
-  let ifStmt = S.If [] test [returnX] Nothing
-  let returnY = returnJust $ E.Var [] "y"
+  let test = AST.Binary [] AST.Greater (AST.Var [] "x") (AST.Var [] "y")
+  let returnX = returnJust $ AST.Var [] "x"
+  let ifStmt = AST.If [] test [returnX] Nothing
+  let returnY = returnJust $ AST.Var [] "y"
   let func8 = func "f" ["x", "y"] [ifStmt, returnY]
   let tvar = tgenN 0
   let type8 = Qual [Pred "Ord" tvar] $ makeFuncType [tvar, tvar] tvar
@@ -369,9 +373,9 @@ ifThenReturn = do
 returnABC :: Assertion
 returnABC = do
   -- f(a, b, c) = if a { return b; } else { return c; }
-  let returnB = returnJust $ E.Var [] "b"
-  let returnC = returnJust $ E.Var [] "c"
-  let ifStmt = S.If [] (E.Var [] "a") [returnB] (Just returnC)
+  let returnB = returnJust $ AST.Var [] "b"
+  let returnC = returnJust $ AST.Var [] "c"
+  let ifStmt = AST.If [] (AST.Var [] "a") [returnB] (Just returnC)
   let func9 = func "f" ["a", "b", "c"] [ifStmt]
   let type9 = Qual [] $ makeFuncType [tBool, tgenN 0, tgenN 0] (tgenN 0)
   assertDeclTypes type9 func9
@@ -380,9 +384,9 @@ returnABC = do
 returnABC2 :: Assertion
 returnABC2 = do
   -- f(a, b, c) = if a { return b; } return c;
-  let returnB = returnJust $ E.Var [] "b"
-  let returnC = returnJust $ E.Var [] "c"
-  let ifStmt = S.If [] (E.Var [] "a") [returnB] Nothing
+  let returnB = returnJust $ AST.Var [] "b"
+  let returnC = returnJust $ AST.Var [] "c"
+  let ifStmt = AST.If [] (AST.Var [] "a") [returnB] Nothing
   let func9 = func "f" ["a", "b", "c"] [ifStmt, returnC]
   let type9 = Qual [] $ makeFuncType [tBool, tgenN 0, tgenN 0] (tgenN 0)
   assertDeclTypes type9 func9
@@ -391,8 +395,8 @@ returnABC2 = do
 returnAB :: Assertion
 returnAB = do
   -- fn(a, b) = if a { return b; } else { return b; }
-  let returnB = returnJust $ E.Var [] "b"
-  let ifStmt = S.If [] (E.Var [] "a") [returnB] (Just returnB)
+  let returnB = returnJust $ AST.Var [] "b"
+  let ifStmt = AST.If [] (AST.Var [] "a") [returnB] (Just returnB)
   let funcAB = func "f" ["a", "b"] [ifStmt]
   let typeAB = Qual [] $ makeFuncType [tBool, tgenN 0] (tgenN 0)
   assertDeclTypes typeAB funcAB
@@ -400,8 +404,8 @@ returnAB = do
 returnABEnd :: Assertion
 returnABEnd = do
   -- fn(a, b) = if a { return b; } return b;
-  let returnB = returnJust $ E.Var [] "b"
-  let ifStmt = S.If [] (E.Var [] "a") [returnB] Nothing
+  let returnB = returnJust $ AST.Var [] "b"
+  let ifStmt = AST.If [] (AST.Var [] "a") [returnB] Nothing
   let funcAB = func "f" ["a", "b"] [ifStmt, returnB]
   let typeAB = Qual [] $ makeFuncType [tBool, tgenN 0] (tgenN 0)
   assertDeclTypes typeAB funcAB
@@ -410,27 +414,27 @@ returnABEnd = do
 missingReturn :: Assertion
 missingReturn = do
   -- f(x, y) = if x && y { return x; }
-  let returnX = returnJust $ E.Var [] "x"
-  let test = E.Binary [] E.BoolAnd (E.Var [] "x") (E.Var [] "y")
-  let ifStmt = S.If [] test [returnX] Nothing
+  let returnX = returnJust $ AST.Var [] "x"
+  let test = AST.Binary [] AST.BoolAnd (AST.Var [] "x") (AST.Var [] "y")
+  let ifStmt = AST.If [] test [returnX] Nothing
   assertDeclFails $ func "f" ["x", "y"] [ifStmt]
 
 missingReturnGeneric :: Assertion
 missingReturnGeneric = do
   -- f(x, y) = if x < y { return x; }
   -- tUnit does not implement Ord
-  let returnX = returnJust $ E.Var [] "x"
-  let test = E.Binary [] E.BoolAnd (E.Var [] "x") (E.Var [] "y")
-  let ifStmt = S.If [] test [returnX] Nothing
+  let returnX = returnJust $ AST.Var [] "x"
+  let test = AST.Binary [] AST.BoolAnd (AST.Var [] "x") (AST.Var [] "y")
+  let ifStmt = AST.If [] test [returnX] Nothing
   assertDeclFails $ func "f" ["x", "y"] [ifStmt]
 
 
 firstClassFunction :: Assertion
 firstClassFunction = do
   -- f(x, y) = { return x(y, y); }
-  let varX = E.Var [] "x"
-  let varY = E.Var [] "y"
-  let call = E.Call [] varX [varY, varY]
+  let varX = AST.Var [] "x"
+  let varY = AST.Var [] "y"
+  let call = AST.Call [] varX [varY, varY]
   let f = func "f" ["x", "y"] [returnJust call]
   -- (a -> a -> b)
   let xType = makeFuncType [tgenN 0, tgenN 0] (tgenN 1)
@@ -442,10 +446,10 @@ firstClassFunction = do
 noHigherOrderPolymorphism :: Assertion
 noHigherOrderPolymorphism = do
   -- f(x) { return x(x(1) > 2); }
-  let varX = E.Var [] "x"
-  let innerCall = E.Call [] varX [intVal 1]
-  let comparison = E.Binary [] E.Greater innerCall (intVal 2)
-  let call = E.Call [] varX [comparison]
+  let varX = AST.Var [] "x"
+  let innerCall = AST.Call [] varX [intVal 1]
+  let comparison = AST.Binary [] AST.Greater innerCall (intVal 2)
+  let call = AST.Call [] varX [comparison]
   let f = func "f" ["x"] [returnJust call]
   assertDeclFails f
 
@@ -453,28 +457,28 @@ noHigherOrderPolymorphism = do
 infiniteType :: Assertion
 infiniteType = do
   -- f(x) { return x(x); }
-  let varX = E.Var [] "x"
-  let call = E.Call [] varX [varX]
+  let varX = AST.Var [] "x"
+  let call = AST.Call [] varX [varX]
   let f = func "f" ["x"] [returnJust call]
   assertDeclFails f
 
 
 findDependencies :: Assertion
 findDependencies = do
-  let varX = E.Var [] "x"
-  let varF = E.Var [] "f"
-  let varG = E.Var [] "g"
+  let varX = AST.Var [] "x"
+  let varF = AST.Var [] "f"
+  let varG = AST.Var [] "g"
 
   -- f(x) { return g(x); }
   -- g(x) { return x; }
-  let fCallsG = func "f" ["x"] [returnJust $ E.Call [] varG [varX]]
+  let fCallsG = func "f" ["x"] [returnJust $ AST.Call [] varG [varX]]
   let g = func "g" ["x"] [returnJust varX]
   assertEqual "" [["g"], ["f"]] (findGroups [("f", fCallsG), ("g", g)])
 
   -- f(x) { return g(x); }
   -- g(x) { return f(x); }
   -- h() { return g; }
-  let gCallsF = func "g" ["x"] [returnJust $ E.Call [] varF [varX]]
+  let gCallsF = func "g" ["x"] [returnJust $ AST.Call [] varF [varX]]
   let hReturnsG = func "h" [] [returnJust varG]
   let bindings2 = [("f", fCallsG), ("g", gCallsF), ("h", hReturnsG)]
   assertEqual "" [["g", "f"], ["h"]] (findGroups bindings2)
@@ -482,9 +486,9 @@ findDependencies = do
   -- f(x Int) Int { return g(x); }
   -- g(x) { return f(x); }
   -- h() { return g; }
-  let intName = T.TypeName [] "Int"
-  let typeAnnotation = Just $ T.Function [] [] [intName] intName
-  let fExpl = D.Function [] "f" typeAnnotation ["x"] (returnJust $ E.Call [] varG [varX])
+  let intName = AST.TName [] "Int"
+  let typeAnnotation = Just $ AST.TFunction [] [] [intName] intName
+  let fExpl = AST.DFunction [] "f" typeAnnotation ["x"] (returnJust $ AST.Call [] varG [varX])
   let bindings3 = [("f", fExpl), ("g", gCallsF), ("h", hReturnsG)]
   let (di, de) = splitExplicit $ Map.fromList bindings3
   assertEqual "" ["g", "h"] $ Map.keys di
@@ -500,17 +504,17 @@ findDependencies = do
 
 simpleModule :: Test
 simpleModule =
-  let varF = E.Var [] "f"
-      varN = E.Var [] "n"
-      varX = E.Var [] "x"
-      varID = E.Var [] "id"
+  let varF = AST.Var [] "f"
+      varN = AST.Var [] "n"
+      varX = AST.Var [] "x"
+      varID = AST.Var [] "id"
       identity = func "id" ["x"] [returnJust varX]
       idType = Scheme [Star] $ Qual [] $ makeFuncType [tgenN 0] (tgenN 0)
   in TestList
      [ labeled "f(n) { return n + 1; }" $ do
          -- Test a super basic module
          -- f(n) { return n + 1; }
-         let nPlus1 = func "f" ["n"] [returnJust $ E.Binary [] E.Plus varN (intVal 1)]
+         let nPlus1 = func "f" ["n"] [returnJust $ AST.Binary [] AST.Plus varN (intVal 1)]
          let result = inferModule $ makeModule [("f", nPlus1)]
          let intFn = Scheme [Star] $ Qual [Pred "Num" $ tgenN 0] $ makeFuncType [tgenN 0] (tgenN 0)
          assertModuleTypes "f" intFn result
@@ -523,10 +527,10 @@ simpleModule =
 
      , labeled "id(x) { return x; }, f(b) { return id(id)(b || False); }" $ do
          -- Test usage of let-polymorphism
-         let varB = E.Var [] "b"
-         let bOrFalse = E.Binary [] E.BoolOr varB (boolVal False)
-         let idid = E.Call [] varID [varID]
-         let idExpr = E.Call [] idid [bOrFalse]
+         let varB = AST.Var [] "b"
+         let bOrFalse = AST.Binary [] AST.BoolOr varB (boolVal False)
+         let idid = AST.Call [] varID [varID]
+         let idExpr = AST.Call [] idid [bOrFalse]
          let fB = func "f" ["b"] [returnJust idExpr]
          let result = inferModule $ makeModule [("f", fB), ("id", identity)]
          let fBType = Scheme [] $ Qual []  $ makeFuncType [tBool] tBool
@@ -538,10 +542,10 @@ simpleModule =
          -- are sometimes less general than you'd expect
          -- id(x) { f(1); return x; }
          -- f(x) { return id(x) << 2; }
-         let callF = S.Expr [] $ E.Call [] varF [intVal 1]
+         let callF = AST.Expr [] $ AST.Call [] varF [intVal 1]
          let identityCallingF = func "id" ["x"] [callF, returnJust varX]
-         let idOfX = E.Call [] varID [varX]
-         let fCallsID = func "f" ["x"] [returnJust $ E.Binary [] E.LShift idOfX (intVal 2)]
+         let idOfX = AST.Call [] varID [varX]
+         let fCallsID = func "f" ["x"] [returnJust $ AST.Binary [] AST.LShift idOfX (intVal 2)]
          let result = inferModule $ makeModule [("f", fCallsID), ("id", identityCallingF)]
          let lessGeneralIDType = Scheme [] $ Qual [] $ makeFuncType [tInt] tInt
          let fCallsIDType = Scheme [] $ Qual [] $ makeFuncType [tInt] tInt
@@ -554,9 +558,9 @@ explicitLetBinding :: Assertion
 explicitLetBinding = do
   -- func(x) { let y Int = x; return y; }
   -- should type as Int -> Int
-  let typeAnnotation = Just $ T.TypeName [] "Int"
-  let letStmt = S.Let [] "y" typeAnnotation (E.Var [] "x")
-  let returnStmt = returnJust (E.Var [] "y")
+  let typeAnnotation = Just $ AST.TName [] "Int"
+  let letStmt = AST.Let [] "y" typeAnnotation (AST.Var [] "x")
+  let returnStmt = returnJust (AST.Var [] "y")
   let funcLet = func "f" ["x"] [letStmt, returnStmt]
   let fnType = Qual [] $ makeFuncType [tInt] tInt
   assertDeclTypes fnType funcLet
@@ -565,19 +569,19 @@ explicitLetBinding = do
 explicitFunctionBinding :: Assertion
 explicitFunctionBinding = do
   -- func(x Int) Int { return x }
-  let intName = T.TypeName [] "Int"
-  let typeAnnotation = Just $ T.Function [] [] [intName] intName
-  let returnStmt = returnJust (E.Var [] "x")
-  let funcInts = D.Function [] "f" typeAnnotation ["x"] returnStmt
+  let intName = AST.TName [] "Int"
+  let typeAnnotation = Just $ AST.TFunction [] [] [intName] intName
+  let returnStmt = returnJust (AST.Var [] "x")
+  let funcInts = AST.DFunction [] "f" typeAnnotation ["x"] returnStmt
   let fnType = asScheme $ makeFuncType [tInt] tInt
   let result = inferModule $ makeModule  [("f", funcInts)]
   assertModuleTypes "f" fnType result
 
   -- This should be rejected because the return type is actually Int
   -- func(x Int) Bool { return x }
-  let boolName = T.TypeName [] "Bool"
-  let type2 = Just $ T.Function [] [] [intName] boolName
-  let funcWrongType = D.Function [] "f" type2 ["x"] returnStmt
+  let boolName = AST.TName [] "Bool"
+  let type2 = Just $ AST.TFunction [] [] [intName] boolName
+  let funcWrongType = AST.DFunction [] "f" type2 ["x"] returnStmt
   assertLeft $ inferModule $ makeModule  [("f", funcWrongType)]
 
 
@@ -664,7 +668,7 @@ getGroupNames :: BindGroup -> [[String]]
 getGroupNames bg = map (map fst) (implicitBindings bg)
 
 
-returnJust expr = S.Return [] (Just expr)
+returnJust expr = AST.Return [] (Just expr)
 
 
 assertExprTypes :: Type -> ExpressionT -> Assertion
@@ -809,25 +813,25 @@ testInstantiate (Scheme kinds qt) =
 
 
 floatVal :: Float -> ExpressionT
-floatVal n = E.Val [] $ E.FloatVal [] n
+floatVal n = AST.Val [] $ AST.FloatVal [] n
 
 
 intVal :: Int -> ExpressionT
-intVal n = E.Val [] $ E.IntVal [] n
+intVal n = AST.Val [] $ AST.IntVal [] n
 
 
 strVal :: String -> ExpressionT
-strVal s = E.Val [] $ E.StrVal [] s
+strVal s = AST.Val [] $ AST.StrVal [] s
 
 
 boolVal :: Bool -> ExpressionT
-boolVal b = E.Val [] $ E.BoolVal [] b
+boolVal b = AST.Val [] $ AST.BoolVal [] b
 
 
 func :: String -> [String] -> [StatementT] -> DeclarationT
 func name args stmts =
-  let fnbody = S.Block [] stmts
-  in D.Function [] name Nothing args fnbody
+  let fnbody = AST.Block [] stmts
+  in AST.DFunction [] name Nothing args fnbody
 
 
 tcon :: String -> [Type] -> Type

@@ -7,11 +7,9 @@ import qualified Data.Map as Map
 import FirstPass
   ( checkReturns
   , makeConstructors
-  , Constructor(..) )
-import qualified AST.Expression as E
-import qualified AST.Declaration as D
-import qualified AST.Statement as S
-import qualified AST.Type as T
+  , Constructor(..)
+  )
+import qualified AST
 import Types
 
 main = runTestTT tests
@@ -36,14 +34,14 @@ assertLeft _         = return ()
 
 testCheckReturns1 :: Assertion
 testCheckReturns1 = do
-  let fn = D.Function [] "foo" Nothing [] (S.Block [] [])
+  let fn = AST.DFunction [] "foo" Nothing [] (AST.Block [] [])
   assertRight $ checkReturns fn
 
 testCheckReturns2 :: Assertion
 testCheckReturns2 = do
-  let returnStmt = S.Return [] Nothing
+  let returnStmt = AST.Return [] Nothing
   let stmts = [printStmt, returnStmt, printStmt]
-  let fn = D.Function [] "foo" Nothing [] (S.Block [] stmts)
+  let fn = AST.DFunction [] "foo" Nothing [] (AST.Block [] stmts)
   assertLeft $ checkReturns fn
 
 tgenN :: Int -> Type
@@ -51,8 +49,8 @@ tgenN n = TGen n Star
 
 testBuildStructConstructor :: Assertion
 testBuildStructConstructor = do
-  let tDef = T.TypeDef { T.defAnn=[], T.defName="Pair", T.defGenerics=["A", "B"] }
-  let tDecl = T.Struct [] [("first", T.TypeName [] "A"), ("second", T.TypeName [] "B")]
+  let tDef = AST.TypeDef { AST.defAnn=[], AST.defName="Pair", AST.defGenerics=["A", "B"] }
+  let tDecl = AST.TStruct [] [("first", AST.TName [] "A"), ("second", AST.TName [] "B")]
   let result = makeConstructors [(tDef, tDecl)] Map.empty
 
   let firstSch = Scheme [Star, Star] $ Qual [] $ makeFuncType [tcon "Pair" [tgenN 0, tgenN 1]] (tgenN 0)
@@ -66,10 +64,10 @@ testBuildStructConstructor = do
 
 testBuildEnumConstructor :: Assertion
 testBuildEnumConstructor = do
-  let tDef = T.TypeDef { T.defAnn=[], T.defName="Maybe", T.defGenerics=["X"] }
-  let optJust = [("val", T.TypeName [] "X")]
+  let tDef = AST.TypeDef { AST.defAnn=[], AST.defName="Maybe", AST.defGenerics=["X"] }
+  let optJust = [("val", AST.TName [] "X")]
   let optNothing = []
-  let tDecl = T.Enum [] [("Just", optJust), ("Nothing", optNothing)]
+  let tDecl = AST.TEnum [] [("Just", optJust), ("Nothing", optNothing)]
   let result = makeConstructors [(tDef, tDecl)] Map.empty
 
 
@@ -89,7 +87,7 @@ testBuildEnumConstructor = do
 
 
 printStmt =
-  S.Expr [] $ E.Call [] (E.Var [] "print") [E.Val [] (E.StrVal [] "hello world")]
+  AST.Expr [] $ AST.Call [] (AST.Var [] "print") [AST.Val [] (AST.StrVal [] "hello world")]
 
 tcon :: String -> [Type] -> Type
 tcon name types =

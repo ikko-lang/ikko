@@ -2,7 +2,7 @@ ikko: Makefile ikko.cabal stack.yaml src/*.hs
 	stack build
 
 lint:
-	hlint src/ --ignore "Reduce duplication"
+	hlint -j src/ --ignore "Reduce duplication"
 
 test:
 	stack test

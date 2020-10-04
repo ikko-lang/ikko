@@ -3,36 +3,48 @@
 module Parser where
 
 import Control.Monad (when)
-import Data.Functor (($>))
 import Data.Functor.Identity (runIdentity)
 import Data.Maybe (isNothing, fromMaybe)
+
+-- import Debug.Trace (traceM)
+import Util.PrettyPrint
+  ( PrettyPrint
+  , prettyPrint
+  )
 
 import Text.Parsec
 import Text.Parsec.Pos (sourceLine, sourceColumn, sourceName)
 import Text.Parsec.Indent
+  ( IndentParser
+  , IndentParserT
+  , IndentT
+  , checkIndent
+  , indented
+  , runIndentParserT
+  , topLevel
+  , withPos
+  )
+import qualified Text.Parsec.Indent.Explicit as Explicit
 
 import AST.Annotation (Annotated, Annotation)
-import qualified AST.Annotation as An
-import qualified AST.Declaration as D
-import AST.Expression (BinOp, UnaryOp)
-import qualified AST.Expression as E
-import qualified AST.Statement as S
-import qualified AST.Type as T
+import qualified AST.Annotation as Ann
+import qualified AST
+import AST (BinOp, UnaryOp)
 import Region (Position(..), Region(..))
 
-type File            = D.File Annotation
-type Declaration     = D.Declaration Annotation
-type Statement       = S.Statement Annotation
-type MatchCase       = S.MatchCase Annotation
-type MatchExpression = S.MatchExpression Annotation
-type Expression      = E.Expression Annotation
-type Value           = E.Value Annotation
-type Type            = T.Type
-type TypeDecl        = T.TypeDecl Annotation
-type TypeDef         = T.TypeDef Annotation
-type EnumOption      = T.EnumOption Annotation
-type Predicate       = T.Predicate Annotation
-type ClassMethod     = T.ClassMethod Annotation
+type File            = AST.File Annotation
+type Declaration     = AST.Declaration Annotation
+type Statement       = AST.Statement Annotation
+type MatchCase       = AST.MatchCase Annotation
+type MatchExpression = AST.MatchExpression Annotation
+type Expression      = AST.Expression Annotation
+type Value           = AST.Value Annotation
+type Type            = AST.Type
+type TypeDecl        = AST.TypeDecl Annotation
+type TypeDef         = AST.TypeDef Annotation
+type EnumOption      = AST.EnumOption Annotation
+type Predicate       = AST.Predicate Annotation
+type ClassMethod     = AST.ClassMethod Annotation
 
 type Parser a = IndentParser String () a
 
@@ -51,10 +63,19 @@ parseFile fileName content =
 fileParser :: Parser File
 fileParser = do
   anyWhitespace
-  decls <- many (topLevel *> declarationParser)
+  decls <- topLevelDecls <|> return [] -- handle empty files
   anyWhitespace
   _ <- eof
   return decls
+
+topLevelDecls :: Parser File
+topLevelDecls = do
+  decl <- topLevel >> declarationParser
+  decls <- many $ try $ do
+    statementSep
+    topLevel
+    declarationParser
+  return $ decl : decls
 
 declarationParser :: Parser Declaration
 declarationParser =
@@ -63,9 +84,7 @@ declarationParser =
 letDeclaration :: Parser Declaration
 letDeclaration = do
   (name, mtype) <- letName
-  result <- D.Let [] name mtype <$> expressionParser
-  statementSep
-  return result
+  AST.DLet [] name mtype <$> expressionParser
 
 letName :: Parser (String, Maybe TypeDecl)
 letName = do
@@ -105,8 +124,7 @@ funcDeclaration = do
     whereClauseParser
   mtype <- assembleFunctionType argTypes retType mpredicates
   char_ ':'
-  statementSep
-  D.Function [] name mtype args <$> blockStatement
+  AST.DFunction [] name mtype args <$> blockStatement
 
 
 whereClauseParser :: Parser [Predicate]
@@ -122,7 +140,7 @@ predParser = do
   char_ ':'
   any1LinearWhitespace
   cls <- typeNameParser
-  return $ T.Predicate { T.predAnn=[], T.predClass=cls, T.predType=tv }
+  return $ AST.Predicate { AST.predAnn=[], AST.predClass=cls, AST.predType=tv }
 
 assembleFunctionType
   :: [Maybe TypeDecl]
@@ -136,7 +154,7 @@ assembleFunctionType argTypes retType predicates =
     argTs <- requireJusts argTypes
     let retT = unwrapOr retType nilType
     let preds = unwrapOr predicates []
-    let typ = T.Function [] preds argTs retT
+    let typ = AST.TFunction [] preds argTs retT
     return $ Just typ
 
 
@@ -167,23 +185,23 @@ typeDeclaration = do
   declared <- simpleTypeDefParser
   tdef <- mustBeTDef declared
   any1LinearWhitespace
-  D.TypeDef [] tdef <$> typeDefParser
+  AST.DTypeDef [] tdef <$> typeDefParser
 
 
 mustBeTDef :: TypeDecl -> Parser TypeDef
 mustBeTDef decl = case decl of
-  T.TypeName a name ->
-    return $ T.TypeDef a name []
-  T.Generic a name ts -> do
+  AST.TName a name ->
+    return $ AST.TypeDef a name []
+  AST.TGeneric a name ts -> do
     ts' <- mapM mustBeTypeName ts
-    return $ T.TypeDef a name ts'
+    return $ AST.TypeDef a name ts'
   _ ->
     fail "invalid type to declare"
 
 
 mustBeTypeName :: TypeDecl -> Parser Type
 mustBeTypeName decl = case decl of
-  T.TypeName _ name -> return name
+  AST.TName _ name -> return name
   _ -> fail "invalid generic parameter in type to declare"
 
 
@@ -202,9 +220,8 @@ instanceDeclaration = do
   let predicates = fromMaybe [] mpredicates
 
   char_ ':'
-  statementSep
 
-  D.Instance [] cls tdef predicates <$> block declarationParser
+  AST.DInstance [] cls tdef predicates <$> indentedBlock declarationParser
 
 
 type ArgDecls = [(String, Maybe TypeDecl)]
@@ -237,17 +254,17 @@ nextArgDecl = do
 
 statementParser :: Parser Statement
 statementParser = do
+  -- traceM "starting a statement"
   let stmtTypes = [
         passStatement,
         returnStatement, letStatement, ifStatement, whileStatement,
         matchStatement, assignStatement, exprStatement]
-  addLocation $ withPos $ choice $ map try stmtTypes
+  choice $ map (try . addLocation . withPos) stmtTypes
 
 passStatement :: Parser Statement
 passStatement = do
   string_ "pass"
-  statementSep
-  return $ S.Pass []
+  return $ AST.Pass []
 
 returnStatement :: Parser Statement
 returnStatement = do
@@ -255,24 +272,19 @@ returnStatement = do
   e <- optionMaybe $ do
     any1LinearWhitespace
     expressionParser
-  statementSep
-  return $ S.Return [] e
+  return $ AST.Return [] e
 
 letStatement :: Parser Statement
 letStatement = do
   (name, mtype) <- letName
-  l <- S.Let [] name mtype <$> expressionParser
-  statementSep
-  return l
+  AST.Let [] name mtype <$> expressionParser
 
 assignStatement :: Parser Statement
 assignStatement = do
   name <- valueName
   names <- try (assignFields [name]) <|> return [name]
   equalsWhitespace
-  a <- S.Assign [] names <$> expressionParser
-  statementSep
-  return a
+  AST.Assign [] names <$> expressionParser
 
 assignFields :: [String] -> Parser [String]
 assignFields lefts = do
@@ -281,13 +293,37 @@ assignFields lefts = do
   let names = right : lefts
   try (assignFields names) <|> return (reverse names)
 
+-- Includes previous and internal statement separators
 blockStatement :: Parser Statement
 blockStatement =
-  indented >> blockStatement'
+  AST.Block [] <$> indentedBlock statementParser
 
-blockStatement' :: Parser Statement
-blockStatement' =
-  fmap (S.Block []) (block statementParser)
+{-
+seeNext label n = do
+  s <- getParserState
+  pos <- ask
+  let out = take n (stateInput s)
+  traceM $ label ++ ":\n--> " ++ show out ++ "        " ++ show pos ++ "\n"
+  return ()
+-}
+
+indentedBlock :: Parser a -> Parser [a]
+indentedBlock p = do
+  statementSep
+  -- require that this be more indented than the previous paragraph
+  indented
+  withPos $ do
+    -- get the current indentation
+    ref <- Explicit.indentation
+    -- parse the first item in the block
+    first <- p
+    -- parse any remaining items in the block, requiring that they be at the same
+    -- indentation as the first
+    rest <- many $ try $ do
+      statementSep
+      Explicit.checkIndent ref
+      p
+    return $ first : rest
 
 statementSep :: Parser ()
 statementSep = eof <|> do
@@ -297,37 +333,35 @@ statementSep = eof <|> do
   return ()
 
 exprStatement :: Parser Statement
-exprStatement = do
-  e <- S.Expr [] <$> expressionParser
-  statementSep
-  return e
+exprStatement =
+  AST.Expr [] <$> expressionParser
 
 ifStatement :: Parser Statement
 ifStatement = do
   string_ "if"
   (test, body) <- testedBlock
   elsePart <- optionMaybe $ try elseBlock
-  return $ let (S.Block [] stmts) = body
-           in S.If [] test stmts elsePart
+  return $ let (AST.Block [] stmts) = body
+           in AST.If [] test stmts elsePart
 
 elseBlock :: Parser Statement
 elseBlock = do
+  statementSep
   _ <- checkIndent *> string "else"
-  (any1Whitespace *> ifStatement) <|> (char ':' *> statementSep *> blockStatement)
+  (any1Whitespace *> ifStatement) <|> (char ':' *> blockStatement)
 
 whileStatement :: Parser Statement
 whileStatement = do
   string_ "while"
   (test, body) <- testedBlock
-  return $ let (S.Block [] stmts) = body
-           in S.While [] test stmts
+  return $ let (AST.Block [] stmts) = body
+           in AST.While [] test stmts
 
 testedBlock :: Parser (Expression, Statement)
 testedBlock = do
   any1Whitespace
   test <- expressionParser
   char_ ':'
-  statementSep
   body <- blockStatement
   return (test, body)
 
@@ -337,15 +371,13 @@ matchStatement = do
   any1Whitespace
   value <- expressionParser
   char_ ':'
-  statementSep
-  S.Match [] value <$> block matchCaseParser
+  AST.Match [] value <$> indentedBlock matchCaseParser
 
 matchCaseParser :: Parser MatchCase
 matchCaseParser = do
   e <- matchExpression
   char_ ':'
-  statementSep
-  S.MatchCase e <$> blockStatement
+  AST.MatchCase e <$> blockStatement
 
 matchExpression :: Parser MatchExpression
 matchExpression = addLocation (matchAnything <|> matchVariable <|> matchStructure)
@@ -353,10 +385,10 @@ matchExpression = addLocation (matchAnything <|> matchVariable <|> matchStructur
 matchAnything :: Parser MatchExpression
 matchAnything = do
   string_ "_"
-  return $ S.MatchAnything []
+  return $ AST.MatchAnything []
 
 matchVariable :: Parser MatchExpression
-matchVariable = S.MatchVariable [] <$> valueName
+matchVariable = AST.MatchVariable [] <$> valueName
 
 matchStructure :: Parser MatchExpression
 matchStructure = do
@@ -365,7 +397,7 @@ matchStructure = do
     char_ '('
     anyWhitespace
     choice [matchExpressions, argsEnd]
-  return $ S.MatchStructure [] structType (fromMaybe [] minner)
+  return $ AST.MatchStructure [] structType (fromMaybe [] minner)
 
 matchExpressions :: Parser [MatchExpression]
 matchExpressions = do
@@ -386,11 +418,17 @@ matchExpressionsNext = do
 
 -- Binary expressions are handled at this level
 expressionParser :: Parser Expression
-expressionParser = unfoldParts <$> readBinExprParts
+expressionParser = do
+  -- traceM "starting expressionParser"
+  parts <- readBinExprParts
+  let unfolded = unfoldParts parts
+  -- traceM $ "unfolded to " ++ prettyPrint unfolded
+  return unfolded
 
 readBinExprParts :: Parser ([Expression], [BinOp])
 readBinExprParts = do
   e <- expr
+  -- traceM $ "Done reading that expression: " ++ ppOrShow e
   anyLinearWhitespace
   parts <- many $ try $ do
     op <- opParser
@@ -400,6 +438,12 @@ readBinExprParts = do
     return (op, e')
   let (ops, es) = unzip parts
   return (e : es, ops)
+
+
+ppOrShow :: (Show a, PrettyPrint a) => a -> String
+ppOrShow x =
+  let printed = prettyPrint x
+  in if null printed then show x else printed
 
 
 unfoldParts :: ([Expression], [BinOp]) -> Expression
@@ -413,49 +457,50 @@ unfoldOps ([e], [])    _     = ([e], [])
 unfoldOps ([],  [])    _     = ([], [])
 unfoldOps (l:r:es, o:os) opset =
   if o `elem` opset
-  then unfoldOps (E.Binary [] o l r : es, os) opset
+  then unfoldOps (AST.Binary [] o l r : es, os) opset
   else let (restE, restO) = unfoldOps (r:es, os) opset
        in (l:restE, o:restO)
 unfoldOps _ _ = error "invalid call to unfoldOps"
 
 precOrder :: [[BinOp]]
 precOrder =
-  [ [E.Times, E.Divide, E.Mod]
-  , [E.Plus, E.Minus]
-  , [E.LShift, E.RShift]
-  , [E.Power]
-  , [E.Less, E.LessEq, E.Greater, E.GreaterEq]
-  , [E.Eq, E.NotEq]
-  , [E.BitAnd]
-  , [E.BitXor]
-  , [E.BitOr]
-  , [E.BoolAnd]
-  , [E.BoolOr]
+  [ [AST.Times, AST.Divide, AST.Mod]
+  , [AST.Plus, AST.Minus]
+  , [AST.LShift, AST.RShift]
+  , [AST.Power]
+  , [AST.Less, AST.LessEq, AST.Greater, AST.GreaterEq]
+  , [AST.Eq, AST.NotEq]
+  , [AST.BitAnd]
+  , [AST.BitXor]
+  , [AST.BitOr]
+  , [AST.BoolAnd]
+  , [AST.BoolOr]
   ]
 
 expr :: Parser Expression
 expr = do
-  e <- addLocation $ choice $ map try [parenExpr, castExpr, valueExpr, unaryExpr, callExpr, varExpr]
+  let options = [parenExpr, castExpr, fnExpr, valueExpr, unaryExpr, callExpr, varExpr]
+  e <- addLocation $ choice $ map try options
   try (addLocation $ accessExpr e) <|> return e
 
 accessExpr :: Expression -> Parser Expression
 accessExpr left = do
   char_ '.'
   right <- valueName
-  let e = E.Access [] left right
+  let e = AST.Access [] left right
   try (accessExpr e) <|> return e
 
 parenExpr :: Parser Expression
-parenExpr = E.Paren [] <$> parenExpr'
+parenExpr = AST.Paren [] <$> parenExpr'
 
 valueExpr :: Parser Expression
-valueExpr = E.Val [] <$> valueParser
+valueExpr = AST.Val [] <$> valueParser
 
 unaryExpr :: Parser Expression
 unaryExpr = do
   op <- unaryOpParser
   anyWhitespace
-  E.Unary [] op <$> expressionParser
+  AST.Unary [] op <$> expressionParser
 
 callExpr :: Parser Expression
 callExpr = do
@@ -463,7 +508,7 @@ callExpr = do
   char_ '('
   anyWhitespace
   args <- choice [fnCallArg, argsEnd]
-  return $ E.Call [] fn args
+  return $ AST.Call [] fn args
 
 fnCallArg :: Parser [Expression]
 fnCallArg = do
@@ -486,7 +531,7 @@ argsEnd = do
 castExpr :: Parser Expression
 castExpr = do
   typ <- typeNameParser
-  E.Cast [] typ <$> parenExpr'
+  AST.Cast [] typ <$> parenExpr'
 
 parenExpr' :: Parser Expression
 parenExpr' = do
@@ -497,8 +542,45 @@ parenExpr' = do
   char_ ')'
   return ex
 
+-- To think about: Is there any way this could allow function expressions inside of parens?
+fnExpr :: Parser Expression
+fnExpr = do
+  -- traceM "fnExpr"
+  args <- fnExprHeader
+  AST.Lambda [] args <$> blockStatement
+
+-- parses e.g. `fn(a, b, c):`, returning the arg names
+fnExprHeader :: Parser [String]
+fnExprHeader = do
+  string_ "fn"
+  anyLinearWhitespace
+  char_ '('
+  anyLinearWhitespace
+  args <- funcArgNames
+  char_ ':'
+  return args
+
+funcArgNames :: Parser [String]
+funcArgNames = funcArgsEnd <|> funcArgsNext
+
+funcArgsEnd :: Parser [String]
+funcArgsEnd = do
+  char_ ')'
+  return []
+
+funcArgsNext :: Parser [String]
+funcArgsNext = do
+  name <- valueName
+  anyLinearWhitespace
+  let remainingArgs = do
+        char_ ','
+        anyLinearWhitespace
+        funcArgsNext
+  rest <- funcArgsEnd <|> remainingArgs
+  return $ name : rest
+
 varExpr :: Parser Expression
-varExpr = E.Var [] <$> valueName
+varExpr = AST.Var [] <$> valueName
 
 --- parse values
 
@@ -514,7 +596,7 @@ structValueParser = do
     fields <- sepEndBy structFieldValue any1Whitespace
     string_ "}"
     return fields
-  return $ E.StructVal [] typ (fromMaybe [] mfields)
+  return $ AST.StructVal [] typ (fromMaybe [] mfields)
 
 structFieldValue :: Parser (String, Expression)
 structFieldValue = do
@@ -526,12 +608,12 @@ structFieldValue = do
   return (field, value)
 
 stringParser :: Parser Value
-stringParser = E.StrVal [] <$> doubleQuotedString
+stringParser = AST.StrVal [] <$> doubleQuotedString
 
 boolParser :: Parser Value
 boolParser = do
   b <- choices [("False", False), ("True", True)]
-  return $ E.BoolVal [] b
+  return $ AST.BoolVal [] b
 
 --- parse floating and integer numbers
 
@@ -545,7 +627,7 @@ numberParser = do
 float :: String -> Parser Value
 float start = do
   fp <- floatingPart
-  return $ E.FloatVal [] (read (start ++ fp))
+  return $ AST.FloatVal [] (read (start ++ fp))
 
 floatingPart :: Parser String
 floatingPart = do
@@ -573,7 +655,7 @@ _digit = do
   digit
 
 integer :: String -> Parser Value
-integer start = return $ E.IntVal [] (read start)
+integer start = return $ AST.IntVal [] (read start)
 
 --- parse operators
 
@@ -582,36 +664,36 @@ opParser = choices opChoices
 
 opChoices :: [(String, BinOp)]
 opChoices =
-      [ ("+",  E.Plus)
-      , ("-",  E.Minus)
-      , ("**", E.Power)
-      , ("*",  E.Times)
-      , ("/",  E.Divide)
-      , ("%",  E.Mod)
-      , ("^",  E.BitXor)
-      , ("&&", E.BoolAnd)
-      , ("&",  E.BitAnd)
-      , ("||", E.BoolOr)
-      , ("|",  E.BitOr)
-      , ("<<",  E.LShift)
-      , (">>",  E.RShift)
-      , ("==", E.Eq)
-      , ("!=", E.NotEq)
-      , ("<=", E.LessEq)
-      , ("<",  E.Less)
-      , (">=", E.GreaterEq)
-      , (">",  E.Greater)
+      [ ("+",  AST.Plus)
+      , ("-",  AST.Minus)
+      , ("**", AST.Power)
+      , ("*",  AST.Times)
+      , ("/",  AST.Divide)
+      , ("%",  AST.Mod)
+      , ("^",  AST.BitXor)
+      , ("&&", AST.BoolAnd)
+      , ("&",  AST.BitAnd)
+      , ("||", AST.BoolOr)
+      , ("|",  AST.BitOr)
+      , ("<<", AST.LShift)
+      , (">>", AST.RShift)
+      , ("==", AST.Eq)
+      , ("!=", AST.NotEq)
+      , ("<=", AST.LessEq)
+      , ("<",  AST.Less)
+      , (">=", AST.GreaterEq)
+      , (">",  AST.Greater)
       ]
 
 unaryOpParser :: Parser UnaryOp
 unaryOpParser =
-  choices [ ("~", E.BitInvert)
-          , ("!", E.BoolNot) ]
+  choices [ ("~", AST.BitInvert)
+          , ("!", AST.BoolNot) ]
 
 ---- AST.Type parsers ----
 
 nilType :: TypeDecl
-nilType = T.TypeName [] "()"
+nilType = AST.TName [] "()"
 
 typeNameParser :: Parser Type
 typeNameParser = string "()" <|> typeName
@@ -638,37 +720,30 @@ typeNameOrVar = addLocation $ tryAll [namedType, typeVariable]
 enumTypeParser :: Parser TypeDecl
 enumTypeParser = do
   string_ "enum:"
-  statementSep
-  options <- block enumField
-  return $ T.Enum [] options
-
-enumHeader :: Parser String
-enumHeader = string "enum:" <* statementSep
+  options <- indentedBlock enumField
+  return $ AST.TEnum [] options
 
 enumField :: Parser (String, EnumOption)
 enumField = withPos $ do
   name <- typeName
-  fields <- enumOptionFields <|> (statementSep $> [])
-  return (name, fields)
+  fields <- optionMaybe $ try enumOptionFields
+  return (name, fromMaybe [] fields)
 
 enumOptionFields :: Parser [(String, TypeDecl)]
 enumOptionFields = do
   char_ ':'
-  statementSep
-  block structField
+  indentedBlock structField
 
 structTypeParser :: Parser TypeDecl
 structTypeParser = do
   string_ "struct:"
-  statementSep
-  T.Struct [] <$> block structField
+  AST.TStruct [] <$> indentedBlock structField
 
 structField :: Parser (String, TypeDecl)
 structField = do
   name <- valueName
   any1LinearWhitespace
   typ <- addLocation simpleTypeDefParser
-  statementSep
   return (name, typ)
 
 
@@ -680,7 +755,7 @@ funcTypeParser = do
   -- TODO: Accept trailing commas
   _ <- atOrBelow *> string ")"
   any1LinearWhitespace
-  T.Function [] [] argDecls <$> simpleTypeDefParser
+  AST.TFunction [] [] argDecls <$> simpleTypeDefParser
 
 
 classDefParser :: Parser TypeDecl
@@ -695,8 +770,7 @@ classDefParser = do
   let superclasses = fromMaybe [] msupers
 
   char_ ':'
-  statementSep
-  T.ClassDecl [] superclasses <$> block (addLocation classMethod)
+  AST.TClassDecl [] superclasses <$> indentedBlock (addLocation classMethod)
 
 classMethod :: Parser ClassMethod
 classMethod = do
@@ -717,10 +791,8 @@ classMethod = do
     whereClauseParser
   let predicates = fromMaybe [] mpredicates
 
-  statementSep
-
-  let typ = T.Function [] predicates argTypes retType
-  return $ T.ClassMethod [] name typ
+  let typ = AST.TFunction [] predicates argTypes retType
+  return $ AST.ClassMethod [] name typ
 
 genericType :: Parser TypeDecl
 genericType = do
@@ -728,13 +800,13 @@ genericType = do
   string_ "<"
   parts <- sepBy simpleTypeDefParser commaSep
   string_ ">"
-  return $ T.Generic [] name parts
+  return $ AST.TGeneric [] name parts
 
 namedType :: Parser TypeDecl
-namedType = T.TypeName [] <$> typeNameParser
+namedType = AST.TName [] <$> typeNameParser
 
 typeVariable :: Parser TypeDecl
-typeVariable = T.TypeName [] <$> valueName
+typeVariable = AST.TName [] <$> valueName
 
 ---- Helper functions ----
 
@@ -907,4 +979,4 @@ addLocation inner = do
   start <- position
   result <- inner
   region <- getRegion start
-  return $ An.addLocation region result
+  return $ Ann.addLocation region result
