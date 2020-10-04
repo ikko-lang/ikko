@@ -317,8 +317,8 @@ instance Depencencies (AST.Expression Annotation) where
       [name | not (Set.member name bound)]
     AST.Access _ inner _ ->
       findDependencies bound inner
-    AST.Lambda _ _args _stmt ->
-      error "TODO: lambda"
+    AST.Lambda _ args stmt ->
+      findDependencies (Set.union bound $ Set.fromList args) stmt
 
 instance Depencencies (AST.Value Annotation) where
   findDependencies bound val = case val of
@@ -1045,8 +1045,30 @@ inferExpr env expr = case expr of
     t <- withLocations [expr] $ getStructFieldType etype field
     return (addType (Qual ps t) $ AST.Access a exp' field, t, ps)
 
-  AST.Lambda _a _args _stmt ->
-    error "todo: lambdas!"
+  AST.Lambda a args stmt -> do
+    argTs <- mapM (const newStarVar) args
+    retT <- newStarVar
+
+    -- add args to the env
+    let argEnv = makeEnv $ zip args (map asScheme argTs)
+    let env' = envUnion argEnv env
+
+    -- infer the type of the body of the lambda
+    (stmt', stmtReturns, ps) <- inferStmt env' stmt
+
+    -- enforce that all return statements in the lambda return the same type
+    let funcReturns = toFunctionReturns stmtReturns
+    withLocations [stmt] $ unifyAll retT funcReturns
+
+    -- assemble the resulting type
+    let t = makeFuncType argTs retT
+    t' <- applyCurrentSub t
+    ps' <- applyCurrentSub ps
+    let q = Qual ps' t'
+
+    -- return the typed lambda
+    let typedLambda = addType q $ AST.Lambda a args stmt'
+    return (typedLambda, t', ps')
 
 inferValue :: Environment -> ValueT -> InferM (ValueT, Type,  Preds)
 inferValue env val = case val of

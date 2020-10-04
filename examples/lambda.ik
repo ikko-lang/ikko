@@ -1,5 +1,6 @@
 fn multiples_of(i Int) fn() Int:
-    let x = 0
+    // TODO: This should still work even if x isn't annotated
+    let x Int = 0
     let f = fn():
         let y = x
         x = x + i
